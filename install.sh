@@ -120,7 +120,7 @@ cmd_install() {
     # ============================================================
     echo ""
     separator
-    echo -e "  ${PURPLE}Step 1/3${NC} — 选择 Skill 安装目录"
+    echo -e "  ${PURPLE}Step 1/4${NC} — 选择 Skill 安装目录"
     separator
     echo ""
     echo "  Skill 文件会安装到这个目录，作为所有 AI 工具的统一存储位置。"
@@ -157,7 +157,7 @@ cmd_install() {
     # ============================================================
     echo ""
     separator
-    echo -e "  ${PURPLE}Step 2/3${NC} — 安装 Skill 文件 & 工具链接"
+    echo -e "  ${PURPLE}Step 2/4${NC} — 安装 Skill 文件 & 工具链接"
     separator
     echo ""
 
@@ -207,11 +207,54 @@ cmd_install() {
     fi
 
     # ============================================================
-    # Step 3: Install justdoit as global command
+    # Step 3: Choose AI CLI tool
     # ============================================================
     echo ""
     separator
-    echo -e "  ${PURPLE}Step 3/3${NC} — 安装 justdoit 全局命令"
+    echo -e "  ${PURPLE}Step 3/4${NC} — 选择 AI CLI 工具"
+    separator
+    echo ""
+    echo "  justdoit 需要调用 AI CLI 来执行任务。"
+    echo "  选择你常用的工具："
+    echo ""
+    echo "  1) Claude Code    (claude -p --permission-mode bypassPermissions)"
+    echo "  2) Codex (OpenAI) (codex exec)"
+    echo "  3) Gemini         (gemini -p)"
+    echo "  4) 自定义命令"
+    echo ""
+
+    local agent_cli
+    if $non_interactive; then
+        agent_cli="claude -p --permission-mode bypassPermissions"
+        log_info "使用默认: Claude Code"
+    else
+        clear_input
+        read -p "  请选择 (1-4) [1]: " -r REPLY
+        REPLY=${REPLY:-1}
+
+        case "$REPLY" in
+            1) agent_cli="claude -p --permission-mode bypassPermissions" ;;
+            2) agent_cli="codex exec" ;;
+            3) agent_cli="gemini -p" ;;
+            4)
+                clear_input
+                read -p "  请输入完整的 CLI 命令 (如: opencode -p): " -r agent_cli
+                ;;
+            *) agent_cli="claude -p --permission-mode bypassPermissions" ;;
+        esac
+    fi
+
+    # Save tool config for justdoit.sh
+    echo "# ekscoding tool config" > "$target_dir/.justdoitrc"
+    echo "AGENT_CLI=\"$agent_cli\"" >> "$target_dir/.justdoitrc"
+    log_success "工具配置: $agent_cli"
+
+    # ============================================================
+    # Step 4: Install justdoit as global command
+    # ============================================================
+    echo ""
+    separator
+    echo -e "  ${PURPLE}Step 4/4${NC} — 安装 justdoit 全局命令"
     separator
     echo ""
     echo "  justdoit.sh 是一键任务执行脚本。"
@@ -421,6 +464,14 @@ cmd_status() {
     # Skill install
     if [ -d "$target_dir" ] && [ -f "$target_dir/SKILL.md" ]; then
         log_success "Skill 已安装: $target_dir"
+
+        # Tool config
+        local rc_file="$target_dir/.justdoitrc"
+        if [ -f "$rc_file" ]; then
+            local agent_cli
+            agent_cli=$(grep "AGENT_CLI=" "$rc_file" 2>/dev/null | sed 's/.*AGENT_CLI="\(.*\)"/\1/' || echo "unknown")
+            log_info "AI CLI 工具: $agent_cli"
+        fi
     else
         log_warn "Skill 未安装"
     fi

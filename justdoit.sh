@@ -7,7 +7,7 @@ set -euo pipefail
 # 用法:
 #   ./justdoit.sh [project_dir]
 #
-# Phase 1: 逐任务执行（独立 claude -p 每次一个任务）
+# Phase 1: 逐任务执行（独立 agent CLI 每次一个任务）
 # Phase 2: 生成双轨验收文档
 # Phase 3: 执行 agent 验收检查
 # ============================================================
@@ -16,6 +16,16 @@ SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_TEMPLATES_DIR="${SKILL_DIR}/templates"
 MAX_RETRIES=3
 SLEEP_BETWEEN_TASKS=2
+
+# Load tool config
+TOOL_CONFIG="${SKILL_DIR}/.justdoitrc"
+if [ -f "$TOOL_CONFIG" ]; then
+    source "$TOOL_CONFIG"
+fi
+# Default: claude
+AGENT_CLI="${AGENT_CLI:-claude -p --permission-mode bypassPermissions}"
+# Extract binary name for validation (first word)
+AGENT_BIN="${AGENT_CLI%% *}"
 
 # ============================================================
 # Color
@@ -55,8 +65,8 @@ trap cleanup SIGINT SIGTERM
 validate_environment() {
     local project_dir="$1"
 
-    if ! command -v claude &>/dev/null; then
-        log_error "claude CLI not found. Install Claude Code first."
+    if ! command -v "$AGENT_BIN" &>/dev/null; then
+        log_error "$AGENT_BIN CLI not found. Install it first, or change AGENT_CLI in $TOOL_CONFIG"
         return 1
     fi
 
@@ -351,16 +361,16 @@ PROMPT_EOF
 }
 
 # ============================================================
-# Claude execution
+# Agent execution
 # ============================================================
 
-execute_claude() {
+execute_agent() {
     local project_dir="$1"
     local prompt="$2"
 
     (
         cd "$project_dir"
-        echo "$prompt" | claude -p --permission-mode bypassPermissions
+        echo "$prompt" | $AGENT_CLI
     )
 }
 
@@ -469,7 +479,7 @@ run_phase1() {
     local total_failed=0
 
     while true; do
-        # Re-read progress file (may have been updated by last claude run)
+        # Re-read progress file (may have been updated by last agent run)
         stats=$(count_tasks "$progress_file")
         IFS='|' read -r total done_count blocked pending <<< "$stats"
 
@@ -510,7 +520,7 @@ run_phase1() {
             fi
 
             set +e
-            execute_claude "$project_dir" "$prompt"
+            execute_agent "$project_dir" "$prompt"
             local exit_code=$?
             set -e
 
@@ -521,7 +531,7 @@ run_phase1() {
             fi
 
             if [[ $exit_code -ne 0 ]]; then
-                log_warning "claude exited with code ${exit_code}"
+                log_warning "$AGENT_BIN exited with code ${exit_code}"
             else
                 log_warning "Progress file not updated — task may not have completed"
             fi
@@ -567,7 +577,7 @@ run_phase2() {
     log_info "This may take a moment..."
 
     set +e
-    execute_claude "$project_dir" "$prompt"
+    execute_agent "$project_dir" "$prompt"
     local exit_code=$?
     set -e
 
@@ -626,7 +636,7 @@ run_phase3() {
     log_info "Running CLI commands — may take a moment..."
 
     set +e
-    execute_claude "$project_dir" "$prompt"
+    execute_agent "$project_dir" "$prompt"
     local exit_code=$?
     set -e
 
@@ -649,7 +659,7 @@ Usage: ./justdoit.sh [project_dir]
 
 ekscoding 一键任务执行 + 验收脚本
 
-Phase 1: 逐任务执行（独立 claude -p 每次一个任务）
+Phase 1: 逐任务执行（每次一个任务，使用 $AGENT_BIN）
 Phase 2: 生成双轨验收文档
 Phase 3: 执行 agent 验收检查
 
