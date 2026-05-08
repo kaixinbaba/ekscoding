@@ -26,15 +26,24 @@ install.sh 会自动检测已安装的 AI 工具（Claude Code、Codex、OpenCla
 
 ### 命令列表
 
+Skill 通过 skill 名称 `ekscoding` 调用，具体语法取决于你的工具：
+
+| 工具 | 调用方式 | 示例 |
+|------|----------|------|
+| Claude Code | `/ekscoding:{command}` | `/ekscoding:createTasks` |
+| Codex | `$ekscoding:{command}` | `$ekscoding:createTasks` |
+
+所有命令也支持自然语言触发，直接描述意图即可（如 "拆分任务"、"执行下一个任务"）。
+
 | 命令 | 功能 | 自然语言触发词 |
 |------|------|---------------|
-| `/createTasks` | 创建任务计划和进度跟踪文档 | "拆分任务"、"帮我分解这个需求" |
-| `/doNextTask` | 执行第一个未完成的任务，更新进度，提交代码 | "执行下一个任务"、"做下一个" |
-| `/doTasksUntil` | 从第一个未完成任务开始，一直执行到指定 Module 全部完成 | "执行到 Module X"、"做到第三个模块" |
-| `/validateResult` | 生成双验收文档并运行 Agent 检查 | "生成验收文档"、"验证结果" |
-| `/helpValidate` | 交互式引导验收，逐步走查验收清单，排查问题 | "帮我验收"、"引导我验证"、"一步步测" |
-| `/archiveHistory` | 将 `docs/plans/` 下所有文件归档到 `docs/history/`，生成摘要，清空 plans | "归档任务历史"、"保存历史" |
-| `/generateDeploymentChecklist` | 生成部署清单 | "生成部署清单"、"我要上线了准备清单" |
+| `createTasks` | 创建任务计划和进度跟踪文档 | "拆分任务"、"帮我分解这个需求" |
+| `doNextTask` | 执行第一个未完成的任务，更新进度，提交代码 | "执行下一个任务"、"做下一个" |
+| `doTasksUntil` | 从第一个未完成任务开始，一直执行到指定 Module 全部完成 | "执行到 Module X"、"做到第三个模块" |
+| `validateResult` | 生成双验收文档并运行 Agent 检查 | "生成验收文档"、"验证结果" |
+| `helpValidate` | 交互式引导验收，逐步走查验收清单，排查问题 | "帮我验收"、"引导我验证"、"一步步测" |
+| `archiveHistory` | 将 `docs/plans/` 下所有文件归档到 `docs/history/`，生成摘要，清空 plans | "归档任务历史"、"保存历史" |
+| `generateDeploymentChecklist` | 生成部署清单 | "生成部署清单"、"我要上线了准备清单" |
 
 ### justdoit.sh 一键执行
 
