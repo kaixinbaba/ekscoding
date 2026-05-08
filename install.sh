@@ -166,7 +166,7 @@ cmd_install() {
         rm -rf "$target_dir"
     fi
 
-    mkdir -p "$install_dir"
+    mkdir -p "$target_dir"
     cp -r "$SCRIPT_DIR/SKILL.md" \
           "$SCRIPT_DIR/README.md" \
           "$SCRIPT_DIR/justdoit.sh" \
