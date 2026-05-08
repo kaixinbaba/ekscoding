@@ -17,7 +17,7 @@
 ### 安装
 
 ```bash
-git clone https://github.com/xunjunjie/ekscoding.git
+git clone https://github.com/kaixinbaba/ekscoding.git
 cd ekscoding
 ./install.sh
 ```
