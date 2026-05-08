@@ -161,8 +161,8 @@ cmd_install() {
     separator
     echo ""
 
-    if [ -d "$target_dir" ]; then
-        log_warn "目标目录已存在，将覆盖"
+    if [ -e "$target_dir" ] || [ -L "$target_dir" ]; then
+        log_warn "目标路径已存在，将覆盖"
         rm -rf "$target_dir"
     fi
 
