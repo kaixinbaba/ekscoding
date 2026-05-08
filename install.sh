@@ -215,33 +215,99 @@ cmd_install() {
     separator
     echo ""
     echo "  justdoit 需要调用 AI CLI 来执行任务。"
-    echo "  选择你常用的工具："
-    echo ""
-    echo "  1) Claude Code    (claude -p --permission-mode bypassPermissions)"
-    echo "  2) Codex (OpenAI) (codex exec)"
-    echo "  3) Gemini         (gemini -p)"
-    echo "  4) 自定义命令"
     echo ""
 
+    # Known tool CLIs (priority order) — binary name and full command
+    local known_tools=(
+        "Claude Code|claude|claude -p --permission-mode bypassPermissions"
+        "Codex|codex|codex exec"
+        "OpenCode|opencode|opencode -p"
+        "Gemini|gemini|gemini -p"
+    )
+
+    # Detect installed tools
+    local detected=()  # indices into known_tools
+    local i=0
+    for entry in "${known_tools[@]}"; do
+        local label bin cmd
+        IFS='|' read -r label bin cmd <<< "$entry"
+        if command -v "$bin" &>/dev/null; then
+            detected+=("$i")
+        fi
+        ((i++))
+    done
+
     local agent_cli
+
     if $non_interactive; then
         agent_cli="claude -p --permission-mode bypassPermissions"
         log_info "使用默认: Claude Code"
-    else
-        clear_input
-        read -p "  请选择 (1-4) [1]: " -r REPLY
-        REPLY=${REPLY:-1}
 
+    elif [ ${#detected[@]} -eq 0 ]; then
+        log_warn "未检测到已知 AI CLI 工具"
+        echo "  已知工具: claude, codex, opencode, gemini"
+        echo ""
+        echo "  1) Claude Code    (claude -p --permission-mode bypassPermissions)"
+        echo "  2) Codex          (codex exec)"
+        echo "  3) OpenCode       (opencode -p)"
+        echo "  4) Gemini         (gemini -p)"
+        echo "  5) 自定义命令"
+        echo ""
+        clear_input
+        read -p "  请选择 (1-5) [1]: " -r REPLY
+        REPLY=${REPLY:-1}
         case "$REPLY" in
             1) agent_cli="claude -p --permission-mode bypassPermissions" ;;
             2) agent_cli="codex exec" ;;
-            3) agent_cli="gemini -p" ;;
-            4)
+            3) agent_cli="opencode -p" ;;
+            4) agent_cli="gemini -p" ;;
+            5)
                 clear_input
-                read -p "  请输入完整的 CLI 命令 (如: opencode -p): " -r agent_cli
+                read -p "  请输入完整 CLI 命令 (如: mycli -p --bypass): " -r agent_cli
                 ;;
             *) agent_cli="claude -p --permission-mode bypassPermissions" ;;
         esac
+
+    elif [ ${#detected[@]} -eq 1 ]; then
+        local idx="${detected[0]}"
+        local label bin cmd
+        IFS='|' read -r label bin cmd <<< "${known_tools[$idx]}"
+        agent_cli="$cmd"
+        echo "  检测到: ${GREEN}${label}${NC} ($bin)"
+        echo ""
+        if confirm "  使用 ${label}？ (Y/n): "; then
+            log_success "已选择: ${label}"
+        else
+            clear_input
+            read -p "  请输入完整 CLI 命令 (如: mycli -p --bypass): " -r agent_cli
+        fi
+
+    else
+        echo "  检测到以下已安装的工具："
+        echo ""
+        local choices=()
+        local n=1
+        for idx in "${detected[@]}"; do
+            local label bin cmd
+            IFS='|' read -r label bin cmd <<< "${known_tools[$idx]}"
+            echo "  $n) ${label}    ($cmd)"
+            choices[$n]="$cmd"
+            ((n++))
+        done
+        echo "  $n) 自定义命令"
+        echo ""
+        clear_input
+        read -p "  请选择 (1-$n) [1]: " -r REPLY
+        REPLY=${REPLY:-1}
+
+        if [ "$REPLY" -ge 1 ] 2>/dev/null && [ "$REPLY" -lt "$n" ]; then
+            agent_cli="${choices[$REPLY]}"
+        elif [ "$REPLY" -eq "$n" ] 2>/dev/null; then
+            clear_input
+            read -p "  请输入完整 CLI 命令 (如: mycli -p --bypass): " -r agent_cli
+        else
+            agent_cli="${choices[1]}"
+        fi
     fi
 
     # Save tool config for justdoit.sh
