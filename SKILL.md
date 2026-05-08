@@ -7,17 +7,6 @@ description: Use this when the user asks for coding task/progress planning, exec
 
 标准化开发交付工作流 Skill，将需求拆分、任务执行、验收、归档、部署准备串联为可重复的命令。
 
-## Core Principles (SaaS Product Development)
-Based on the lessons for launching new SaaS products:
-1. **Don't build a full SaaS first - build a free tool instead** - Put the tool front and center on your homepage
-2. **Validate demand before building complex AI/features** - Get 20+ email signups first
-3. **Focus on an extremely narrow use case** - "AI LinkedIn post generator for B2B SaaS founders", not "AI writing tool"
-4. **Don't build login/payment first** - Wait until you have proven demand
-5. **Build long-tail tool pages, not generic blog posts** - Each page solves one specific task for one specific user
-6. **Community validation before paid ads** - Post in communities first, listen to what people complain about
-7. **"This is a demo!"** - Be honest with users while you validate
-8. **Task breakdown to 1-2 hour chunks** - Make progress visible and achievable
-
 ## Purpose
 Standardize development delivery into repeatable command workflows:
 - `/createTasks`: From a requirement, create task plan + progress tracking doc
