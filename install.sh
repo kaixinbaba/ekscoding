@@ -207,113 +207,195 @@ cmd_install() {
     fi
 
     # ============================================================
-    # Step 3: Choose AI CLI tool
+    # Step 3: AI CLI tool priority ordering
     # ============================================================
     echo ""
     separator
-    echo -e "  ${PURPLE}Step 3/4${NC} — 选择 AI CLI 工具"
+    echo -e "  ${PURPLE}Step 3/4${NC} — AI CLI 工具优先级排序"
     separator
     echo ""
-    echo "  justdoit 需要调用 AI CLI 来执行任务。"
+    echo "  justdoit 会按优先级顺序调用 AI CLI，当前工具失败时自动切换下一个。"
     echo ""
 
-    # Known tool CLIs (priority order) — binary name and full command
-    local known_tools=(
-        "Claude Code|claude|claude -p --permission-mode bypassPermissions"
-        "Codex|codex|codex exec"
-        "OpenCode|opencode|opencode -p"
-        "Gemini|gemini|gemini -p"
-    )
-
-    # Detect installed tools
-    local detected=()  # indices into known_tools
-    local i=0
-    for entry in "${known_tools[@]}"; do
+    # Known tool CLIs — binary name and full command
+    local known_labels=()
+    local known_bins=()
+    local known_cmds=()
+    for entry in \
+        "Claude Code|claude|claude -p --permission-mode bypassPermissions" \
+        "Codex|codex|codex exec" \
+        "OpenCode|opencode|opencode run" \
+        "Gemini|gemini|gemini -p" \
+    ; do
         local label bin cmd
         IFS='|' read -r label bin cmd <<< "$entry"
-        if command -v "$bin" &>/dev/null; then
-            detected+=("$i")
-        fi
-        ((i++))
+        known_labels+=("$label")
+        known_bins+=("$bin")
+        known_cmds+=("$cmd")
     done
 
-    local agent_cli
+    # Detect installed tools
+    local detected_indices=()  # indices into known_* arrays
+    local i
+    for i in $(seq 0 $((${#known_bins[@]} - 1))); do
+        if command -v "${known_bins[$i]}" &>/dev/null; then
+            detected_indices+=("$i")
+        fi
+    done
+
+    local priority_cmds=()
 
     if $non_interactive; then
-        agent_cli="claude -p --permission-mode bypassPermissions"
-        log_info "使用默认: Claude Code"
+        # Default: claude first, then whatever is detected
+        priority_cmds=("claude -p --permission-mode bypassPermissions")
+        for idx in "${detected_indices[@]}"; do
+            local cmd="${known_cmds[$idx]}"
+            if [[ "$cmd" != "claude -p --permission-mode bypassPermissions" ]]; then
+                priority_cmds+=("$cmd")
+            fi
+        done
+        log_info "使用默认优先级: ${priority_cmds[*]}"
 
-    elif [ ${#detected[@]} -eq 0 ]; then
+    elif [ ${#detected_indices[@]} -eq 0 ]; then
         log_warn "未检测到已知 AI CLI 工具"
-        echo "  已知工具: claude, codex, opencode, gemini"
+        echo "  输入数字序号排列优先级，失败时自动切换下一个工具。"
         echo ""
-        echo "  1) Claude Code    (claude -p --permission-mode bypassPermissions)"
-        echo "  2) Codex          (codex exec)"
-        echo "  3) OpenCode       (opencode -p)"
-        echo "  4) Gemini         (gemini -p)"
+        for i in $(seq 1 ${#known_labels[@]}); do
+            local idx=$((i-1))
+            echo "  ${i}) ${known_labels[$idx]}    (${known_cmds[$idx]})"
+        done
         echo "  5) 自定义命令"
         echo ""
+        echo "  默认顺序: 1234 (Claude Code → Codex → OpenCode → Gemini)"
+        echo ""
         clear_input
-        read -p "  请选择 (1-5) [1]: " -r REPLY
-        REPLY=${REPLY:-1}
-        case "$REPLY" in
-            1) agent_cli="claude -p --permission-mode bypassPermissions" ;;
-            2) agent_cli="codex exec" ;;
-            3) agent_cli="opencode -p" ;;
-            4) agent_cli="gemini -p" ;;
-            5)
-                clear_input
-                read -p "  请输入完整 CLI 命令 (如: mycli -p --bypass): " -r agent_cli
-                ;;
-            *) agent_cli="claude -p --permission-mode bypassPermissions" ;;
-        esac
+        read -p "  请输入数字序号排序 [1234]: " -r REPLY
+        REPLY=${REPLY:-1234}
 
-    elif [ ${#detected[@]} -eq 1 ]; then
-        local idx="${detected[0]}"
-        local label bin cmd
-        IFS='|' read -r label bin cmd <<< "${known_tools[$idx]}"
-        agent_cli="$cmd"
+        priority_cmds=()
+        local seen=()
+        local j
+        for (( j=0; j<${#REPLY}; j++ )); do
+            local ch="${REPLY:$j:1}"
+            case "$ch" in
+                1|2|3|4)
+                    local idx=$((ch-1))
+                    priority_cmds+=("${known_cmds[$idx]}")
+                    ;;
+                5)
+                    echo ""
+                    clear_input
+                    read -p "  请输入自定义 CLI 命令 (如: mycli -p --bypass): " -r custom_cmd
+                    if [[ -n "$custom_cmd" ]]; then
+                        priority_cmds+=("$custom_cmd")
+                    fi
+                    ;;
+                *) ;; # skip invalid chars
+            esac
+        done
+
+    elif [ ${#detected_indices[@]} -eq 1 ]; then
+        local idx="${detected_indices[0]}"
+        local label="${known_labels[$idx]}"
+        local bin="${known_bins[$idx]}"
+        local cmd="${known_cmds[$idx]}"
         echo "  检测到: ${GREEN}${label}${NC} ($bin)"
         echo ""
-        if confirm "  使用 ${label}？ (Y/n): "; then
-            log_success "已选择: ${label}"
-        else
+        echo "  没有其他工具可 fallback。可额外添加自定义命令作为备用。"
+        echo ""
+        echo "  1) 仅使用 ${label}"
+        echo "  2) ${label} + 自定义备用命令"
+        echo ""
+        clear_input
+        read -p "  请选择 (1/2) [1]: " -r REPLY
+        REPLY=${REPLY:-1}
+        if [ "$REPLY" = "2" ]; then
             clear_input
-            read -p "  请输入完整 CLI 命令 (如: mycli -p --bypass): " -r agent_cli
+            read -p "  请输入自定义备用 CLI 命令 (如: mycli -p --bypass): " -r custom_cmd
+            priority_cmds=("$cmd" "$custom_cmd")
+        else
+            priority_cmds=("$cmd")
         fi
+        log_success "已选择: ${label}"
 
     else
         echo "  检测到以下已安装的工具："
         echo ""
-        local choices=()
-        local n=1
-        for idx in "${detected[@]}"; do
-            local label bin cmd
-            IFS='|' read -r label bin cmd <<< "${known_tools[$idx]}"
-            echo "  $n) ${label}    ($cmd)"
-            choices[$n]="$cmd"
-            ((n++))
+        local menu_idx=1
+        local menu_to_known=()
+        local shown_bins=()
+        for idx in "${detected_indices[@]}"; do
+            echo "  ${menu_idx}) ${known_labels[$idx]}    (${known_cmds[$idx]})"
+            menu_to_known+=("$idx")
+            shown_bins+=("${known_bins[$idx]}")
+            ((menu_idx++))
         done
-        echo "  $n) 自定义命令"
+        echo "  ${menu_idx}) 自定义命令"
+        local max_menu=$menu_idx
         echo ""
-        clear_input
-        read -p "  请选择 (1-$n) [1]: " -r REPLY
-        REPLY=${REPLY:-1}
+        echo "  输入数字序号按优先级排序，失败时自动切换下一个。"
+        printf "  e.g. \""
+        for m in $(seq 1 ${#menu_to_known[@]}); do
+            printf "$m"
+        done
+        echo "\" = ${known_labels[${menu_to_known[0]}]} → ... (默认顺序)"
+        echo ""
 
-        if [ "$REPLY" -ge 1 ] 2>/dev/null && [ "$REPLY" -lt "$n" ]; then
-            agent_cli="${choices[$REPLY]}"
-        elif [ "$REPLY" -eq "$n" ] 2>/dev/null; then
-            clear_input
-            read -p "  请输入完整 CLI 命令 (如: mycli -p --bypass): " -r agent_cli
+        clear_input
+        read -p "  请输入数字序号排序: " -r REPLY
+
+        if [[ -z "$REPLY" ]]; then
+            # Default: as shown
+            for idx in "${menu_to_known[@]}"; do
+                priority_cmds+=("${known_cmds[$idx]}")
+            done
         else
-            agent_cli="${choices[1]}"
+            priority_cmds=()
+            local j
+            for (( j=0; j<${#REPLY}; j++ )); do
+                local ch="${REPLY:$j:1}"
+                if [[ "$ch" =~ [1-9] ]]; then
+                    local choice=$ch
+                    if [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "$max_menu" ]; then
+                        if [ "$choice" -eq "$max_menu" ]; then
+                            echo ""
+                            clear_input
+                            read -p "  请输入自定义 CLI 命令 (如: mycli -p --bypass): " -r custom_cmd
+                            if [[ -n "$custom_cmd" ]]; then
+                                priority_cmds+=("$custom_cmd")
+                            fi
+                        else
+                            local orig_idx=$((choice-1))
+                            local kd_idx="${menu_to_known[$orig_idx]}"
+                            priority_cmds+=("${known_cmds[$kd_idx]}")
+                        fi
+                    fi
+                fi
+            done
         fi
     fi
 
+    if [ ${#priority_cmds[@]} -eq 0 ]; then
+        log_error "未选择任何工具，取消安装"
+        return 1
+    fi
+
     # Save tool config for justdoit.sh
-    echo "# ekscoding tool config" > "$target_dir/.justdoitrc"
-    echo "AGENT_CLI=\"$agent_cli\"" >> "$target_dir/.justdoitrc"
-    log_success "工具配置: $agent_cli"
+    echo "# ekscoding tool config — priority-ordered AI CLI tools" > "$target_dir/.justdoitrc"
+    echo "# Fallback: if tool N fails, try tool N+1" >> "$target_dir/.justdoitrc"
+    echo "AGENT_CLI_PRIORITY=(" >> "$target_dir/.justdoitrc"
+    for cmd in "${priority_cmds[@]}"; do
+        echo "  \"$cmd\"" >> "$target_dir/.justdoitrc"
+    done
+    echo ")" >> "$target_dir/.justdoitrc"
+    # Backward compat
+    echo "AGENT_CLI=\"${priority_cmds[0]}\"" >> "$target_dir/.justdoitrc"
+
+    echo ""
+    log_success "优先级配置 (${#priority_cmds[@]} 个工具):"
+    for i in $(seq 0 $((${#priority_cmds[@]} - 1))); do
+        echo "  $((i+1)). ${priority_cmds[$i]}"
+    done
 
     # ============================================================
     # Step 4: Install justdoit as global command
@@ -534,9 +616,32 @@ cmd_status() {
         # Tool config
         local rc_file="$target_dir/.justdoitrc"
         if [ -f "$rc_file" ]; then
-            local agent_cli
-            agent_cli=$(grep "AGENT_CLI=" "$rc_file" 2>/dev/null | sed 's/.*AGENT_CLI="\(.*\)"/\1/' || echo "unknown")
-            log_info "AI CLI 工具: $agent_cli"
+            log_info "AI CLI 优先级:"
+            # Read priority array
+            local in_priority=false
+            while IFS= read -r line; do
+                if [[ "$line" == "AGENT_CLI_PRIORITY=("* ]]; then
+                    in_priority=true
+                    continue
+                fi
+                if $in_priority; then
+                    if [[ "$line" == ")" ]]; then
+                        break
+                    fi
+                    # Extract quoted command
+                    local cmd
+                    cmd=$(echo "$line" | sed -E 's/^[[:space:]]*"([^"]*)"[[:space:]]*$/\1/')
+                    if [[ -n "$cmd" ]]; then
+                        echo "    - $cmd"
+                    fi
+                fi
+            done < "$rc_file"
+            # Fallback: old format
+            if ! $in_priority; then
+                local agent_cli
+                agent_cli=$(grep "AGENT_CLI=" "$rc_file" 2>/dev/null | sed 's/.*AGENT_CLI="\(.*\)"/\1/' || echo "unknown")
+                echo "    - ${agent_cli}"
+            fi
         fi
     else
         log_warn "Skill 未安装"

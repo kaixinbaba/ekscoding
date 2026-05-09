@@ -22,10 +22,56 @@ TOOL_CONFIG="${SKILL_DIR}/.justdoitrc"
 if [ -f "$TOOL_CONFIG" ]; then
     source "$TOOL_CONFIG"
 fi
-# Default: claude
-AGENT_CLI="${AGENT_CLI:-claude -p --permission-mode bypassPermissions}"
-# Extract binary name for validation (first word)
-AGENT_BIN="${AGENT_CLI%% *}"
+
+# Build priority list — prefer new array, fallback to old single value
+if [[ -n "${AGENT_CLI_PRIORITY+x}" ]] && [[ ${#AGENT_CLI_PRIORITY[@]} -gt 0 ]]; then
+    PRIORITY_TOOLS=("${AGENT_CLI_PRIORITY[@]}")
+elif [[ -n "${AGENT_CLI:-}" ]]; then
+    PRIORITY_TOOLS=("$AGENT_CLI")
+else
+    PRIORITY_TOOLS=("claude -p --permission-mode bypassPermissions")
+fi
+
+# Extract binary names for validation
+PRIORITY_BINS=()
+for cmd in "${PRIORITY_TOOLS[@]}"; do
+    PRIORITY_BINS+=("${cmd%% *}")
+done
+
+# ============================================================
+# Error classification
+# ============================================================
+
+classify_error() {
+    local stderr="$1"
+    local lower
+    lower=$(echo "$stderr" | tr '[:upper:]' '[:lower:]')
+
+    if echo "$lower" | grep -qE '429|rate.?limit|quota|billing|usage.?limit|hit.*(limit|quota)|limit.?reached|too many requests|usage.?exceeded'; then
+        echo "QUOTA"
+    elif echo "$lower" | grep -qE '401|403|unauthorized|unauthenticated|auth|invalid.*(key|api|token)|incorrect.*api.*key|api.?key|not.*authorized'; then
+        echo "AUTH"
+    elif echo "$lower" | grep -qE 'connection.*(refused|reset|closed)|tim(e)?out|ENOTFOUND|DNS|resolve|unreachable|network|ETIMEDOUT|ECONNREFUSED|EHOSTUNREACH'; then
+        echo "NETWORK"
+    elif echo "$lower" | grep -qE 'certificate|ssl|tls|unable.*verify|UNABLE_TO_VERIFY|SSL_ERROR'; then
+        echo "CERT"
+    else
+        echo "UNKNOWN"
+    fi
+}
+
+explain_error() {
+    local error_type="$1"
+    local tool_info="$2"
+
+    case "$error_type" in
+        QUOTA)  log_warning "${tool_info}: 额度用尽或触发限流，切换下一个工具..." ;;
+        AUTH)   log_warning "${tool_info}: API Key 无效或认证失败，跳过该工具" ;;
+        NETWORK) log_warning "${tool_info}: 网络连接失败/超时，切换下一个工具..." ;;
+        CERT)   log_warning "${tool_info}: SSL 证书验证失败，切换下一个工具..." ;;
+        *)      log_warning "${tool_info}: 异常退出，切换下一个工具..." ;;
+    esac
+}
 
 # ============================================================
 # Color
@@ -65,9 +111,25 @@ trap cleanup SIGINT SIGTERM
 validate_environment() {
     local project_dir="$1"
 
-    if ! command -v "$AGENT_BIN" &>/dev/null; then
-        log_error "$AGENT_BIN CLI not found. Install it first, or change AGENT_CLI in $TOOL_CONFIG"
+    # Check at least one tool binary is available
+    local any_found=false
+    local missing_bins=()
+    for bin in "${PRIORITY_BINS[@]}"; do
+        if command -v "$bin" &>/dev/null; then
+            any_found=true
+        else
+            missing_bins+=("$bin")
+        fi
+    done
+
+    if ! $any_found; then
+        log_error "No AI CLI tool found among: ${PRIORITY_BINS[*]}"
+        log_error "Run install.sh to reconfigure."
         return 1
+    fi
+
+    if [[ ${#missing_bins[@]} -gt 0 ]]; then
+        log_info "以下工具不可用（运行时将跳过）: ${missing_bins[*]}"
     fi
 
     if [[ ! -d "$project_dir" ]]; then
@@ -367,11 +429,69 @@ PROMPT_EOF
 execute_agent() {
     local project_dir="$1"
     local prompt="$2"
+    local tool_cmd="$3"
+    local stderr_file="$4"
 
     (
         cd "$project_dir"
-        echo "$prompt" | $AGENT_CLI
+        # gemini -p expects prompt as argument, not stdin
+        # claude -p reads from stdin
+        if [[ "$tool_cmd" =~ (^|.*[[:space:]])-p$ ]]; then
+            if [[ -n "$stderr_file" ]]; then
+                $tool_cmd "$prompt" 2> >(tee "$stderr_file" >&2)
+            else
+                $tool_cmd "$prompt"
+            fi
+        else
+            if [[ -n "$stderr_file" ]]; then
+                echo "$prompt" | $tool_cmd 2> >(tee "$stderr_file" >&2)
+            else
+                echo "$prompt" | $tool_cmd
+            fi
+        fi
     )
+}
+
+# Run a prompt with tool fallback (no retries per tool, used by Phase 2 & 3)
+run_with_fallback() {
+    local project_dir="$1"
+    local prompt="$2"
+    local phase_label="$3"
+
+    local tool_idx
+    for tool_idx in $(seq 0 $((${#PRIORITY_TOOLS[@]} - 1))); do
+        local tool_cmd="${PRIORITY_TOOLS[$tool_idx]}"
+        local tool_bin="${PRIORITY_BINS[$tool_idx]}"
+
+        if ! command -v "$tool_bin" &>/dev/null; then
+            continue
+        fi
+
+        local stderr_file
+        stderr_file=$(mktemp)
+        local exit_code=0
+
+        set +e
+        execute_agent "$project_dir" "$prompt" "$tool_cmd" "$stderr_file"
+        exit_code=$?
+        set -e
+
+        if [[ $exit_code -eq 0 ]]; then
+            rm -f "$stderr_file"
+            return 0
+        fi
+
+        local stderr error_type
+        stderr=$(cat "$stderr_file" 2>/dev/null || echo "")
+        rm -f "$stderr_file"
+        error_type=$(classify_error "$stderr")
+        log_warning "${phase_label}: ${tool_bin} 退出码 ${exit_code} — ${error_type}"
+        [[ -n "$stderr" ]] && echo -e "  ${YELLOW}$(echo "$stderr" | tail -3)${NC}"
+        explain_error "$error_type" "$tool_bin"
+    done
+
+    log_error "${phase_label}: 所有工具均已尝试，依然失败"
+    return 1
 }
 
 # ============================================================
@@ -507,40 +627,76 @@ run_phase1() {
 
         show_task_header "$progress_file" "$module" "$task_num" "$title"
 
-        local success=false
-        local retry=0
-        local prompt
+        local task_success=false
+        local last_error_type="UNKNOWN"
+        local last_stderr=""
+        local tried_tools=()
 
-        while [[ $retry -lt $MAX_RETRIES ]]; do
-            if [[ $retry -eq 0 ]]; then
-                prompt=$(build_task_prompt "$progress_n" "$task_n")
-            else
-                log_warning "Retry ${retry}/${MAX_RETRIES} for Task ${module}.${task_num}..."
-                prompt=$(build_retry_prompt "$progress_n" "$task_n" "$module" "$task_num" "$((retry+1))")
+        # Try each tool in priority order
+        local tool_idx
+        for tool_idx in $(seq 0 $((${#PRIORITY_TOOLS[@]} - 1))); do
+            local tool_cmd="${PRIORITY_TOOLS[$tool_idx]}"
+            local tool_bin="${PRIORITY_BINS[$tool_idx]}"
+
+            # Skip unavailable tools
+            if ! command -v "$tool_bin" &>/dev/null; then
+                continue
             fi
 
-            set +e
-            execute_agent "$project_dir" "$prompt"
-            local exit_code=$?
-            set -e
+            tried_tools+=("$tool_bin")
 
-            if [[ $exit_code -eq 0 ]] && verify_task_completed "$progress_file" "$module" "$task_num"; then
-                log_success "Task ${module}.${task_num} verified complete."
-                success=true
-                break
-            fi
+            local retry=0
+            local prompt
 
-            if [[ $exit_code -ne 0 ]]; then
-                log_warning "$AGENT_BIN exited with code ${exit_code}"
-            else
-                log_warning "Progress file not updated — task may not have completed"
-            fi
+            while [[ $retry -lt $MAX_RETRIES ]]; do
+                if [[ $retry -eq 0 ]]; then
+                    prompt=$(build_task_prompt "$progress_n" "$task_n")
+                else
+                    log_warning "Retry ${retry}/${MAX_RETRIES} for Task ${module}.${task_num} (${tool_bin})..."
+                    prompt=$(build_retry_prompt "$progress_n" "$task_n" "$module" "$task_num" "$((retry+1))")
+                fi
 
-            ((retry++))
+                local stderr_file
+                stderr_file=$(mktemp)
+                local exit_code=0
+
+                set +e
+                execute_agent "$project_dir" "$prompt" "$tool_cmd" "$stderr_file"
+                exit_code=$?
+                set -e
+
+                if [[ $exit_code -eq 0 ]] && verify_task_completed "$progress_file" "$module" "$task_num"; then
+                    rm -f "$stderr_file"
+                    log_success "Task ${module}.${task_num} verified complete (via ${tool_bin})."
+                    task_success=true
+                    break 2  # break out of both retry loop AND tool loop
+                fi
+
+                # Capture stderr for error classification
+                last_stderr=$(cat "$stderr_file" 2>/dev/null || echo "")
+                rm -f "$stderr_file"
+
+                if [[ $exit_code -ne 0 ]]; then
+                    last_error_type=$(classify_error "$last_stderr")
+                    log_warning "${tool_bin} 退出码 ${exit_code} — ${last_error_type}"
+                    # Show snippet of stderr for debugging
+                    if [[ -n "$last_stderr" ]]; then
+                        echo -e "  ${YELLOW}$(echo "$last_stderr" | tail -3)${NC}"
+                    fi
+                else
+                    log_warning "Progress file not updated — task may not have completed"
+                    last_error_type="UNKNOWN"
+                fi
+
+                ((retry++))
+            done
+
+            # Tool exhausted its retries — explain and fallback
+            explain_error "$last_error_type" "$tool_bin"
         done
 
-        if [[ "$success" != "true" ]]; then
-            log_error "Task ${module}.${task_num} FAILED after ${MAX_RETRIES} attempts."
+        if [[ "$task_success" != "true" ]]; then
+            log_error "Task ${module}.${task_num} FAILED — 已尝试: ${tried_tools[*]}"
             log_error "Check progress file and git log for partial work."
             log_error "Fix issues manually, then re-run justdoit.sh to continue."
             ((total_failed++))
@@ -576,13 +732,7 @@ run_phase2() {
     log_step "Generating dual-track acceptance docs..."
     log_info "This may take a moment..."
 
-    set +e
-    execute_agent "$project_dir" "$prompt"
-    local exit_code=$?
-    set -e
-
-    if [[ $exit_code -ne 0 ]]; then
-        log_error "Phase 2 failed (exit code: ${exit_code})"
+    if ! run_with_fallback "$project_dir" "$prompt" "Phase 2"; then
         return 1
     fi
 
@@ -635,15 +785,10 @@ run_phase3() {
     log_step "Executing agent acceptance checks..."
     log_info "Running CLI commands — may take a moment..."
 
-    set +e
-    execute_agent "$project_dir" "$prompt"
-    local exit_code=$?
-    set -e
-
-    if [[ $exit_code -ne 0 ]]; then
-        log_warning "Agent checks completed with issues (exit: ${exit_code})"
-    else
+    if run_with_fallback "$project_dir" "$prompt" "Phase 3"; then
         log_success "Agent checks executed."
+    else
+        log_warning "Agent checks completed with issues"
     fi
 
     log_info "Results: docs/plans/acceptance-${feature}-agent.md"
@@ -659,7 +804,7 @@ Usage: ./justdoit.sh [project_dir]
 
 ekscoding 一键任务执行 + 验收脚本
 
-Phase 1: 逐任务执行（每次一个任务，使用 $AGENT_BIN）
+Phase 1: 逐任务执行（优先级: ${PRIORITY_BINS[*]}）
 Phase 2: 生成双轨验收文档
 Phase 3: 执行 agent 验收检查
 
