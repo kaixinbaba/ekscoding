@@ -14,7 +14,7 @@ Standardize development delivery into repeatable command workflows:
 - `/doTasksUntil`: Execute tasks sequentially from first unchecked until target module is fully complete (includes all prerequisite tasks)
 - `/validateResult`: Generate dual-track acceptance docs (human + agent) + run agent checks
 - `/helpValidate`: Interactive guided validation — walk through acceptance checklist step-by-step with Q&A, troubleshoot issues together, explain the "why" behind each test
-- `/archiveHistory`: Archive all files under `docs/plans/` into `docs/history/YYYY-MM-DD/`, generate summary, then clear `docs/plans/`
+- `/archiveHistory`: Condense task/progress docs into summary, delete acceptance/checklist, output to `docs/history/YYYY-MM-DD.md` (append if same-day), then clear `docs/plans/`
 - `/generateDeploymentChecklist`: Generate deployment checklist, clearly categorizing: 1) Agent can do now (no extra permissions), 2) Agent can do with user's credentials/tokens, 3) Must be done by user (detailed steps with minimal mental burden)
 
 ## Command Router
@@ -52,7 +52,7 @@ If the user does not type the slash command but intent is equivalent, still rout
 | Progress Tracking | `docs/plans/progress{N}.md` |
 | Human Acceptance | `docs/plans/acceptance-{FEATURE}.md` |
 | Agent Acceptance | `docs/plans/acceptance-{FEATURE}-agent.md` |
-| Archived History | `docs/history/YYYY-MM-DD/` |
+| Archived History | `docs/history/YYYY-MM-DD.md` |
 | Deployment Checklist | `docs/plans/deployment-checklist-{PROJECT}.md` |
 
 ## State Markers (Universal)

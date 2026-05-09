@@ -13,7 +13,7 @@
 6. 归档提交  →  /ekscoding:archiveHistory（归档 plans/，清空，git commit）
 ```
 
-每个 phase 完成后再进入下一个，不跳步。justdoit 会自动完成 Phase 3（执行任务）、Phase 4（验收文档）、Phase 5（Agent 验收检查），但 helpValidate 的人工交互验收建议手动走一遍。
+每个 phase 完成后再进入下一个，不跳步。justdoit 自动完成 Phase 1（执行任务）、Phase 2（验收文档）、Phase 3（Agent 验收检查），但 helpValidate 的人工交互验收建议手动走一遍。
 
 ## 安装
 
@@ -36,11 +36,11 @@ install.sh 会逐步引导你完成安装：
 - 自动检测已安装的 AI 工具（Claude Code、Codex、OpenClaw、Gemini）
 - 在检测到的工具 skills 目录下创建软链接
 
-**Step 3 — 选择 AI CLI 工具**
-- 自动检测你机器上已安装的 CLI（`command -v` 检测）
-- 只显示实际安装了的工具，优先级：claude > codex > opencode > gemini
-- 只有一个工具时自动确认，多个时让你选，都没有时提供全部选项
-- 也支持自定义 CLI 命令
+**Step 3 — AI CLI 工具优先级排序**
+- 自动检测机器上已安装的 CLI（Claude Code、Codex、OpenCode、Gemini）
+- 输入数字序号排列优先级，任务失败时自动切换到下一个工具
+- 支持添加自定义 CLI 命令作为额外的备用工具
+- 非交互模式下默认：claude 优先，其余已安装工具按序排在后面
 
 **Step 4 — 安装 justdoit 全局命令**
 - 可选将 `justdoit` 安装为全局命令，在任意目录直接使用
@@ -63,6 +63,8 @@ install.sh 会逐步引导你完成安装：
 |------|------|------|
 | Claude Code | `/ekscoding:{command}` | `/ekscoding:createTasks` |
 | Codex | `$ekscoding:{command}` | `$ekscoding:createTasks` |
+| OpenCode | `/ekscoding:{command}` | `/ekscoding:createTasks` |
+| Gemini | `/ekscoding:{command}` | `/ekscoding:createTasks` |
 
 所有命令也支持自然语言触发，直接说 "拆分任务"、"执行下一个任务" 等即可。
 
@@ -73,7 +75,7 @@ install.sh 会逐步引导你完成安装：
 | `doTasksUntil` | 从第一个未完成任务开始，一直执行到指定 Module 全部完成 | "执行到 Module X"、"做到第三个模块" |
 | `validateResult` | 生成双验收文档并运行 Agent 检查 | "生成验收文档"、"验证结果" |
 | `helpValidate` | 交互式引导验收，逐步走查验收清单，排查问题 | "帮我验收"、"引导我验证"、"一步步测" |
-| `archiveHistory` | 将 `docs/plans/` 下所有文件归档到 `docs/history/`，生成摘要，清空 plans | "归档任务历史"、"保存历史" |
+| `archiveHistory` | 浓缩 task/progress 为总结，验收/部署清单提取要点后删除，输出到 `docs/history/YYYY-MM-DD.md`（同日多次归档追加） | "归档任务历史"、"保存历史" |
 | `generateDeploymentChecklist` | 生成部署清单 | "生成部署清单"、"我要上线了准备清单" |
 
 ## justdoit — 一键自动化
@@ -92,16 +94,47 @@ justdoit ~/my-project # 指定项目
 
 前置条件：项目目录下必须有 `docs/plans/`（通过 `createTasks` 创建）。
 
-### 更换 AI CLI 工具
+### 多工具优先级 & 自动 Fallback
 
-justdoit 使用的 CLI 工具由安装目录下的 `.justdoitrc` 文件控制：
+justdoit 按优先级顺序调用 AI CLI。当前工具失败时，自动切换到下一个工具。支持的错误分类：
+
+| 错误类型 | 触发条件 | 行为 |
+|----------|----------|------|
+| QUOTA | 429 / 额度用尽 / 限流 | 切换下一个工具 |
+| AUTH | 401 / 403 / API Key 无效 | 跳过该工具 |
+| NETWORK | 连接拒绝 / 超时 / DNS 失败 | 切换下一个工具 |
+| CERT | SSL 证书验证失败 | 切换下一个工具 |
+| TIMEOUT | 任务超过时限 | 强杀，切换下一个工具 |
+| UNKNOWN | 其他异常退出 | 切换下一个工具 |
+
+如果所有工具都失败，justdoit 停止并提示手动介入。
+
+### 超时 & 心跳
+
+- 每任务超时 600s（10 分钟），可在 `.justdoitrc` 中覆盖 `TASK_TIMEOUT`，设为 `0` 禁用
+- 每 30s 打印一次心跳：`[~] 等待 AI 响应... 已运行 90s / 600s`
+- 任务启动时显示启动时间和预计超时
+
+### 防系统休眠
+
+启动时自动拉起 `caffeinate`（macOS）或 `systemd-inhibit`（Linux）防止系统休眠导致任务假死。无此工具时使用后台保活进程兜底。脚本退出时自动清理。
+
+### 更换 AI CLI 工具 / 调整超时
+
+配置由安装目录下的 `.justdoitrc` 文件控制：
 
 ```bash
-cat ~/.my-skills/skills/ekscoding/.justdoitrc
-# AGENT_CLI="claude -p --permission-mode bypassPermissions"
-```
+# 优先级排序（数组，第一个优先）
+AGENT_CLI_PRIORITY=(
+  "claude -p --permission-mode bypassPermissions"
+  "codex exec"
+  "opencode run"
+  "gemini -p"
+)
 
-编辑此文件即可切换工具（如改为 `codex exec` 或 `gemini -p`）。
+# 每任务超时秒数（0 = 禁用）
+TASK_TIMEOUT=600
+```
 
 ## 文件结构
 
@@ -135,7 +168,7 @@ ekscoding/
 | 进度跟踪 | `docs/plans/progress{N}.md` |
 | 人工验收 | `docs/plans/acceptance-{FEATURE}.md` |
 | Agent 验收 | `docs/plans/acceptance-{FEATURE}-agent.md` |
-| 历史归档 | `docs/history/YYYY-MM-DD/` |
+| 历史归档 | `docs/history/YYYY-MM-DD.md`（同日多次归档追加） |
 | 部署清单 | `docs/plans/deployment-checklist-{PROJECT}.md` |
 
 ## 状态标记（通用）
