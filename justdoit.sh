@@ -16,6 +16,8 @@ SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_TEMPLATES_DIR="${SKILL_DIR}/templates"
 MAX_RETRIES=3
 SLEEP_BETWEEN_TASKS=2
+TASK_TIMEOUT=600  # 10 minutes per task attempt (0 = disabled)
+HEARTBEAT_INTERVAL=30  # seconds between progress pings
 
 # Load tool config
 TOOL_CONFIG="${SKILL_DIR}/.justdoitrc"
@@ -60,16 +62,23 @@ classify_error() {
     fi
 }
 
+# Detect if exit code indicates timeout (124 = timeout command, 142 = SIGALRM)
+is_timeout_exit() {
+    local code="$1"
+    [[ "$code" -eq 124 || "$code" -eq 142 ]]
+}
+
 explain_error() {
     local error_type="$1"
     local tool_info="$2"
 
     case "$error_type" in
-        QUOTA)  log_warning "${tool_info}: 额度用尽或触发限流，切换下一个工具..." ;;
-        AUTH)   log_warning "${tool_info}: API Key 无效或认证失败，跳过该工具" ;;
-        NETWORK) log_warning "${tool_info}: 网络连接失败/超时，切换下一个工具..." ;;
-        CERT)   log_warning "${tool_info}: SSL 证书验证失败，切换下一个工具..." ;;
-        *)      log_warning "${tool_info}: 异常退出，切换下一个工具..." ;;
+        QUOTA)    log_warning "${tool_info}: 额度用尽或触发限流，切换下一个工具..." ;;
+        AUTH)     log_warning "${tool_info}: API Key 无效或认证失败，跳过该工具" ;;
+        NETWORK)  log_warning "${tool_info}: 网络连接失败/超时，切换下一个工具..." ;;
+        CERT)     log_warning "${tool_info}: SSL 证书验证失败，切换下一个工具..." ;;
+        TIMEOUT)  log_warning "${tool_info}: 任务超时 (${TASK_TIMEOUT}s)，切换下一个工具..." ;;
+        *)        log_warning "${tool_info}: 异常退出，切换下一个工具..." ;;
     esac
 }
 
@@ -431,23 +440,100 @@ execute_agent() {
     local prompt="$2"
     local tool_cmd="$3"
     local stderr_file="$4"
+    local timeout_sec="$5"   # optional: 0 or empty = no timeout
 
     (
         cd "$project_dir"
-        # gemini -p expects prompt as argument, not stdin
-        # claude -p reads from stdin
-        if [[ "$tool_cmd" =~ (^|.*[[:space:]])-p$ ]]; then
-            if [[ -n "$stderr_file" ]]; then
-                $tool_cmd "$prompt" 2> >(tee "$stderr_file" >&2)
+
+        # Helper: launch agent in background
+        _launch_agent() {
+            if [[ "$tool_cmd" =~ (^|.*[[:space:]])-p$ ]]; then
+                # gemini-style: prompt as argument
+                if [[ -n "$stderr_file" ]]; then
+                    $tool_cmd "$prompt" 2> >(tee "$stderr_file" >&2) &
+                else
+                    $tool_cmd "$prompt" &
+                fi
             else
-                $tool_cmd "$prompt"
+                # stdin-style: prompt via pipe
+                if [[ -n "$stderr_file" ]]; then
+                    echo "$prompt" | $tool_cmd 2> >(tee "$stderr_file" >&2) &
+                else
+                    echo "$prompt" | $tool_cmd &
+                fi
+            fi
+        }
+
+        if [[ -z "${timeout_sec:-}" ]] || [[ "${timeout_sec:-0}" -le 0 ]]; then
+            # No timeout — run directly
+            if [[ "$tool_cmd" =~ (^|.*[[:space:]])-p$ ]]; then
+                if [[ -n "$stderr_file" ]]; then
+                    $tool_cmd "$prompt" 2> >(tee "$stderr_file" >&2)
+                else
+                    $tool_cmd "$prompt"
+                fi
+            else
+                if [[ -n "$stderr_file" ]]; then
+                    echo "$prompt" | $tool_cmd 2> >(tee "$stderr_file" >&2)
+                else
+                    echo "$prompt" | $tool_cmd
+                fi
             fi
         else
-            if [[ -n "$stderr_file" ]]; then
-                echo "$prompt" | $tool_cmd 2> >(tee "$stderr_file" >&2)
-            else
-                echo "$prompt" | $tool_cmd
+            # Run with timeout + heartbeat
+            local start_ts
+            start_ts=$(date +%s)
+
+            _launch_agent
+            local agent_pid=$!
+
+            # Heartbeat in background
+            (
+                while kill -0 "$agent_pid" 2>/dev/null; do
+                    sleep "$HEARTBEAT_INTERVAL"
+                    local now elapsed
+                    now=$(date +%s)
+                    elapsed=$((now - start_ts))
+                    if kill -0 "$agent_pid" 2>/dev/null; then
+                        echo -e "  ${YELLOW}[~]${NC} 等待 AI 响应... 已运行 ${elapsed}s / ${timeout_sec}s" >&2
+                    fi
+                done
+            ) &
+            local hb_pid=$!
+
+            # Wait with timeout
+            local waited=0
+            while [[ $waited -lt $timeout_sec ]]; do
+                if ! kill -0 "$agent_pid" 2>/dev/null; then
+                    break
+                fi
+                sleep 1
+                ((waited++))
+            done
+
+            # Kill heartbeat
+            kill "$hb_pid" 2>/dev/null || true
+            wait "$hb_pid" 2>/dev/null || true
+
+            # If still alive, timeout occurred
+            if kill -0 "$agent_pid" 2>/dev/null; then
+                echo -e "  ${RED}[TIMEOUT]${NC} 超过 ${timeout_sec}s，强制终止..." >&2
+                kill -TERM "$agent_pid" 2>/dev/null
+                sleep 2
+                if kill -0 "$agent_pid" 2>/dev/null; then
+                    kill -KILL "$agent_pid" 2>/dev/null
+                fi
+                wait "$agent_pid" 2>/dev/null || true
+                return 124
             fi
+
+            # Get actual exit code
+            wait "$agent_pid" 2>/dev/null
+            local exit_code=$?
+            local elapsed
+            elapsed=$(($(date +%s) - start_ts))
+            echo -e "  ${GREEN}[OK]${NC} 任务耗时 ${elapsed}s" >&2
+            return $exit_code
         fi
     )
 }
@@ -472,7 +558,7 @@ run_with_fallback() {
         local exit_code=0
 
         set +e
-        execute_agent "$project_dir" "$prompt" "$tool_cmd" "$stderr_file"
+        execute_agent "$project_dir" "$prompt" "$tool_cmd" "$stderr_file" "$TASK_TIMEOUT"
         exit_code=$?
         set -e
 
@@ -484,7 +570,11 @@ run_with_fallback() {
         local stderr error_type
         stderr=$(cat "$stderr_file" 2>/dev/null || echo "")
         rm -f "$stderr_file"
-        error_type=$(classify_error "$stderr")
+        if is_timeout_exit "$exit_code"; then
+            error_type="TIMEOUT"
+        else
+            error_type=$(classify_error "$stderr")
+        fi
         log_warning "${phase_label}: ${tool_bin} 退出码 ${exit_code} — ${error_type}"
         [[ -n "$stderr" ]] && echo -e "  ${YELLOW}$(echo "$stderr" | tail -3)${NC}"
         explain_error "$error_type" "$tool_bin"
@@ -627,6 +717,8 @@ run_phase1() {
 
         show_task_header "$progress_file" "$module" "$task_num" "$title"
 
+        log_info "启动: $(date '+%H:%M:%S') | 超时: ${TASK_TIMEOUT}s | 工具: ${PRIORITY_BINS[*]}"
+
         local task_success=false
         local last_error_type="UNKNOWN"
         local last_stderr=""
@@ -661,7 +753,7 @@ run_phase1() {
                 local exit_code=0
 
                 set +e
-                execute_agent "$project_dir" "$prompt" "$tool_cmd" "$stderr_file"
+                execute_agent "$project_dir" "$prompt" "$tool_cmd" "$stderr_file" "$TASK_TIMEOUT"
                 exit_code=$?
                 set -e
 
@@ -676,7 +768,10 @@ run_phase1() {
                 last_stderr=$(cat "$stderr_file" 2>/dev/null || echo "")
                 rm -f "$stderr_file"
 
-                if [[ $exit_code -ne 0 ]]; then
+                if is_timeout_exit "$exit_code"; then
+                    last_error_type="TIMEOUT"
+                    log_warning "${tool_bin} 退出码 ${exit_code} — TIMEOUT (${TASK_TIMEOUT}s)"
+                elif [[ $exit_code -ne 0 ]]; then
                     last_error_type=$(classify_error "$last_stderr")
                     log_warning "${tool_bin} 退出码 ${exit_code} — ${last_error_type}"
                     # Show snippet of stderr for debugging
@@ -804,6 +899,7 @@ Usage: ./justdoit.sh [project_dir]
 
 ekscoding 一键任务执行 + 验收脚本
 
+每任务超时: ${TASK_TIMEOUT}s（可在 .justdoitrc 覆盖 TASK_TIMEOUT，0 = 禁用）
 Phase 1: 逐任务执行（优先级: ${PRIORITY_BINS[*]}）
 Phase 2: 生成双轨验收文档
 Phase 3: 执行 agent 验收检查
