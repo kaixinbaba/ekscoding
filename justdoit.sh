@@ -104,15 +104,58 @@ log_step()    { echo -e "${CYAN}==>${NC} $1"; }
 log_phase()   { echo -e "${PURPLE}==>${NC} ${PURPLE}$1${NC}"; }
 
 # ============================================================
+# Sleep prevention (macOS caffeinate, Linux fallback)
+# ============================================================
+CAFFEINATE_PID=""
+
+start_sleep_prevention() {
+    if command -v caffeinate &>/dev/null; then
+        # macOS: caffeinate -s (prevent system sleep) with generous timeout
+        caffeinate -s -t 86400 &
+        CAFFEINATE_PID=$!
+        log_info "已启动 caffeinate (PID: ${CAFFEINATE_PID})，防止系统休眠"
+    else
+        # Linux: try systemd-inhibit, else spawn a periodic pinger
+        if command -v systemd-inhibit &>/dev/null; then
+            systemd-inhibit --what=sleep --why="justdoit running" sleep 86400 &
+            CAFFEINATE_PID=$!
+            log_info "已启动 systemd-inhibit (PID: ${CAFFEINATE_PID})"
+        else
+            # Fallback: background process that touches a temp file every 60s
+            # Keeps the shell alive; some systems detect activity via this
+            local ping_file
+            ping_file=$(mktemp)
+            (
+                while true; do
+                    touch "$ping_file" 2>/dev/null || true
+                    sleep 60
+                done
+            ) &
+            CAFFEINATE_PID=$!
+            log_info "已启动 sleep-ping 保活进程 (PID: ${CAFFEINATE_PID})"
+        fi
+    fi
+}
+
+stop_sleep_prevention() {
+    if [[ -n "$CAFFEINATE_PID" ]] && kill -0 "$CAFFEINATE_PID" 2>/dev/null; then
+        kill "$CAFFEINATE_PID" 2>/dev/null || true
+        wait "$CAFFEINATE_PID" 2>/dev/null || true
+    fi
+}
+
+# ============================================================
 # Signal handling
 # ============================================================
 cleanup() {
     echo ""
+    stop_sleep_prevention
     log_warning "Interrupted. Partial progress may exist."
     log_info "Re-run justdoit.sh to continue from next pending task."
     exit 130
 }
 trap cleanup SIGINT SIGTERM
+trap stop_sleep_prevention EXIT
 
 # ============================================================
 # Environment validation
@@ -936,6 +979,9 @@ main() {
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════╝${NC}"
 
     validate_environment "$project_dir" || exit 1
+
+    # Prevent system sleep while running
+    start_sleep_prevention
 
     # ---- Phase 1: Execute all tasks ----
     show_phase_banner "1" "Execute All Pending Tasks"
