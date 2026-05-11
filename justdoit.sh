@@ -16,7 +16,7 @@ SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_TEMPLATES_DIR="${SKILL_DIR}/templates"
 MAX_RETRIES=3
 SLEEP_BETWEEN_TASKS=2
-TASK_TIMEOUT=600  # 10 minutes per task attempt (0 = disabled)
+TASK_TIMEOUT=1200  # 20 minutes per task attempt (0 = disabled, override in .justdoitrc)
 HEARTBEAT_INTERVAL=30  # seconds between progress pings
 
 # Load tool config
@@ -327,11 +327,11 @@ Execute exactly ONE task using the ekscoding workflow. Follow these steps precis
   \`\`\`
 - Update the completion stats table at the bottom (increment completed count)
 
-### Step 6: Git commit and push
+### Step 6: Git commit
 - \`git add\` all changed files
 - Commit message format (exact): \`feat: complete Task {MODULE.TASK} - {TASK_TITLE}\`
   Example: \`feat: complete Task 2.1 - Add user authentication middleware\`
-- Push: \`git push origin \$(git branch --show-current)\`
+- Do NOT git push — the script handles push separately
 
 ### Step 7: STOP
 - Report which task was completed
@@ -484,6 +484,9 @@ execute_agent() {
     local tool_cmd="$3"
     local stderr_file="$4"
     local timeout_sec="$5"   # optional: 0 or empty = no timeout
+    local progress_file="$6" # optional: for progress-based early termination
+    local module="$7"        # optional
+    local task_num="$8"      # optional
 
     (
         cd "$project_dir"
@@ -552,6 +555,28 @@ execute_agent() {
                 fi
                 sleep 1
                 ((waited++))
+
+                # Progress-based early termination (check every ~30s)
+                if [[ -n "${progress_file:-}" && -n "${module:-}" && -n "${task_num:-}" ]]; then
+                    if (( waited % 30 == 0 )); then
+                        if command grep -qE "^- \[x\] \*\*Task ${module}\.${task_num}\*\*" "$progress_file" 2>/dev/null; then
+                            echo -e "  ${GREEN}[OK]${NC} Task ${module}.${task_num} already completed (detected at ${waited}s), graceful exit..." >&2
+                            kill -TERM "$agent_pid" 2>/dev/null
+                            local grace=0
+                            while kill -0 "$agent_pid" 2>/dev/null && (( grace < 15 )); do
+                                sleep 1
+                                ((grace++))
+                            done
+                            if kill -0 "$agent_pid" 2>/dev/null; then
+                                kill -KILL "$agent_pid" 2>/dev/null
+                            fi
+                            wait "$agent_pid" 2>/dev/null || true
+                            kill "$hb_pid" 2>/dev/null || true
+                            wait "$hb_pid" 2>/dev/null || true
+                            return 0
+                        fi
+                    fi
+                fi
             done
 
             # Kill heartbeat
@@ -795,15 +820,60 @@ run_phase1() {
                 stderr_file=$(mktemp)
                 local exit_code=0
 
+                # Full timeout for first attempt, reduced for retries
+                # (retries first check if task already done — should be fast)
+                local effective_timeout
+                if [[ $retry -eq 0 ]]; then
+                    effective_timeout="$TASK_TIMEOUT"
+                else
+                    effective_timeout=120
+                    log_info "Retry uses reduced timeout: ${effective_timeout}s"
+                fi
+
                 set +e
-                execute_agent "$project_dir" "$prompt" "$tool_cmd" "$stderr_file" "$TASK_TIMEOUT"
+                execute_agent "$project_dir" "$prompt" "$tool_cmd" "$stderr_file" "$effective_timeout" \
+                    "$progress_file" "$module" "$task_num"
                 exit_code=$?
                 set -e
 
-                if [[ $exit_code -eq 0 ]] && verify_task_completed "$progress_file" "$module" "$task_num"; then
+                # Check task completion regardless of exit code
+                # (timeout may kill process after work is done but before cleanup)
+                if verify_task_completed "$progress_file" "$module" "$task_num"; then
                     rm -f "$stderr_file"
+                    if [[ $exit_code -ne 0 ]]; then
+                        if is_timeout_exit "$exit_code"; then
+                            log_info "Task completed despite timeout — progress file confirms [x]"
+                        else
+                            log_info "Task completed despite exit code ${exit_code} — progress file confirms [x]"
+                        fi
+                    fi
                     log_success "Task ${module}.${task_num} verified complete (via ${tool_bin})."
                     task_success=true
+
+                    # Best-effort git push (30s timeout, non-fatal)
+                    local branch
+                    branch=$(cd "$project_dir" && git branch --show-current 2>/dev/null || echo "")
+                    if [[ -n "$branch" ]]; then
+                        log_info "Pushing ${branch}..."
+                        (
+                            cd "$project_dir"
+                            git push origin "$branch" >/tmp/justdoit-git-push.log 2>&1
+                        ) &
+                        local push_pid=$!
+                        local push_waited=0
+                        local push_max=30
+                        while kill -0 "$push_pid" 2>/dev/null && (( push_waited < push_max )); do
+                            sleep 1
+                            ((push_waited++))
+                        done
+                        if kill -0 "$push_pid" 2>/dev/null; then
+                            kill "$push_pid" 2>/dev/null
+                            wait "$push_pid" 2>/dev/null || true
+                            log_warning "Git push timed out after ${push_max}s (committed locally)"
+                        else
+                            wait "$push_pid" && log_success "Pushed to origin/${branch}" || log_warning "Git push failed (committed locally)"
+                        fi
+                    fi
                     break 2  # break out of both retry loop AND tool loop
                 fi
 

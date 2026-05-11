@@ -390,6 +390,8 @@ cmd_install() {
     echo ")" >> "$target_dir/.justdoitrc"
     # Backward compat
     echo "AGENT_CLI=\"${priority_cmds[0]}\"" >> "$target_dir/.justdoitrc"
+    echo "" >> "$target_dir/.justdoitrc"
+    echo "# TASK_TIMEOUT=1200  # uncomment to override (seconds, 0 = no timeout)" >> "$target_dir/.justdoitrc"
 
     echo ""
     log_success "优先级配置 (${#priority_cmds[@]} 个工具):"
