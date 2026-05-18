@@ -507,6 +507,15 @@ execute_agent() {
     (
         cd "$project_dir"
 
+        # For codex: suppress noisy thinking output via -o, capture final message
+        local codex_out=""
+        local stdout_redir=""
+        if [[ "$tool_cmd" == codex* ]]; then
+            codex_out=$(mktemp)
+            tool_cmd="$tool_cmd -o $codex_out"
+            stdout_redir=">/dev/null"
+        fi
+
         # Helper: launch agent in background
         _launch_agent() {
             if [[ "$tool_cmd" =~ (^|.*[[:space:]])-p$ ]]; then
@@ -518,10 +527,18 @@ execute_agent() {
                 fi
             else
                 # stdin-style: prompt via pipe
-                if [[ -n "$stderr_file" ]]; then
-                    echo "$prompt" | $tool_cmd 2> >(tee "$stderr_file" >&2) &
+                if [[ -n "${stdout_redir:-}" ]]; then
+                    if [[ -n "$stderr_file" ]]; then
+                        echo "$prompt" | $tool_cmd >/dev/null 2> >(tee "$stderr_file" >&2) &
+                    else
+                        echo "$prompt" | $tool_cmd >/dev/null &
+                    fi
                 else
-                    echo "$prompt" | $tool_cmd &
+                    if [[ -n "$stderr_file" ]]; then
+                        echo "$prompt" | $tool_cmd 2> >(tee "$stderr_file" >&2) &
+                    else
+                        echo "$prompt" | $tool_cmd &
+                    fi
                 fi
             fi
         }
@@ -535,11 +552,24 @@ execute_agent() {
                     $tool_cmd "$prompt"
                 fi
             else
-                if [[ -n "$stderr_file" ]]; then
-                    echo "$prompt" | $tool_cmd 2> >(tee "$stderr_file" >&2)
+                if [[ -n "${stdout_redir:-}" ]]; then
+                    if [[ -n "$stderr_file" ]]; then
+                        echo "$prompt" | $tool_cmd >/dev/null 2> >(tee "$stderr_file" >&2)
+                    else
+                        echo "$prompt" | $tool_cmd >/dev/null
+                    fi
                 else
-                    echo "$prompt" | $tool_cmd
+                    if [[ -n "$stderr_file" ]]; then
+                        echo "$prompt" | $tool_cmd 2> >(tee "$stderr_file" >&2)
+                    else
+                        echo "$prompt" | $tool_cmd
+                    fi
                 fi
+            fi
+            # For codex: cat the -o output file to stdout
+            if [[ -n "$codex_out" && -f "$codex_out" ]]; then
+                cat "$codex_out"
+                rm -f "$codex_out"
             fi
         else
             # Run with timeout + heartbeat
@@ -589,6 +619,8 @@ execute_agent() {
                             wait "$agent_pid" 2>/dev/null || true
                             kill "$hb_pid" 2>/dev/null || true
                             wait "$hb_pid" 2>/dev/null || true
+                            [[ -n "$codex_out" && -f "$codex_out" ]] && cat "$codex_out"
+                            [[ -n "$codex_out" ]] && rm -f "$codex_out"
                             return 0
                         fi
                     fi
@@ -608,6 +640,8 @@ execute_agent() {
                     kill -KILL "$agent_pid" 2>/dev/null
                 fi
                 wait "$agent_pid" 2>/dev/null || true
+                [[ -n "$codex_out" && -f "$codex_out" ]] && cat "$codex_out"
+                [[ -n "$codex_out" ]] && rm -f "$codex_out"
                 return 124
             fi
 
@@ -617,6 +651,8 @@ execute_agent() {
             local elapsed
             elapsed=$(($(date +%s) - start_ts))
             echo -e "  ${GREEN}[OK]${NC} 任务耗时 ${elapsed}s" >&2
+            [[ -n "$codex_out" && -f "$codex_out" ]] && cat "$codex_out"
+            [[ -n "$codex_out" ]] && rm -f "$codex_out"
             return $exit_code
         fi
     )
