@@ -41,11 +41,20 @@ for cmd in "${PRIORITY_TOOLS[@]}"; do
 done
 
 # Tool name → command mapping (for --tool flag)
-declare -A TOOL_MAP=(
-    ["claude"]="claude -p --permission-mode bypassPermissions"
-    ["codex"]="codex exec"
-    ["gemini"]="gemini -p"
-)
+get_tool_cmd() {
+    case "$1" in
+        claude) echo "claude -p --permission-mode bypassPermissions" ;;
+        codex)  echo "codex exec" ;;
+        gemini) echo "gemini -p" ;;
+    esac
+}
+
+is_valid_tool() {
+    case "$1" in
+        claude|codex|gemini) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 # ============================================================
 # Error classification
@@ -1025,7 +1034,7 @@ main() {
                 ;;
             --tool)
                 specified_tool="$2"
-                if [[ -z "${TOOL_MAP[$specified_tool]:-}" ]]; then
+                if ! is_valid_tool "$specified_tool"; then
                     log_error "Unknown tool: $specified_tool (valid: claude, codex, gemini)"
                     exit 1
                 fi
@@ -1033,7 +1042,7 @@ main() {
                 ;;
             --tool=*)
                 specified_tool="${1#*=}"
-                if [[ -z "${TOOL_MAP[$specified_tool]:-}" ]]; then
+                if ! is_valid_tool "$specified_tool"; then
                     log_error "Unknown tool: $specified_tool (valid: claude, codex, gemini)"
                     exit 1
                 fi
@@ -1055,7 +1064,7 @@ main() {
 
     # Override priority list if --tool specified
     if [[ -n "$specified_tool" ]]; then
-        PRIORITY_TOOLS=("${TOOL_MAP[$specified_tool]}")
+        PRIORITY_TOOLS=("$(get_tool_cmd "$specified_tool")")
         PRIORITY_BINS=("$specified_tool")
         if ! command -v "$specified_tool" &>/dev/null; then
             log_error "Tool not found in PATH: $specified_tool"
