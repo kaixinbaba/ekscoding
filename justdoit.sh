@@ -499,10 +499,10 @@ execute_agent() {
     local prompt="$2"
     local tool_cmd="$3"
     local stderr_file="$4"
-    local timeout_sec="$5"   # optional: 0 or empty = no timeout
-    local progress_file="$6" # optional: for progress-based early termination
-    local module="$7"        # optional
-    local task_num="$8"      # optional
+    local timeout_sec="${5:-}"   # optional: 0 or empty = no timeout
+    local progress_file="${6:-}" # optional: for progress-based early termination
+    local module="${7:-}"        # optional
+    local task_num="${8:-}"      # optional
 
     (
         cd "$project_dir"
