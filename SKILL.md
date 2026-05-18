@@ -1,6 +1,6 @@
 ---
 name: ekscoding
-description: Use this when the user asks for coding task/progress planning, executing the next unchecked task, executing tasks until a target module is complete, generating human+agent acceptance docs, interactive guided validation walkthrough, archiving plan history, or generating deployment checklists. Triggers on commands like /createTasks, /doNextTask, /doTasksUntil, /validateResult, /helpValidate, /archiveHistory, /generateDeploymentChecklist, or when you says things like "拆分任务"、"执行下一个任务"、"执行到 Module X"、"生成验收文档"、"帮我验收"、"引导我验证"、"一步步测"、"归档任务历史"、"生成部署清单"、"我要上线了准备清单".
+description: Use this when the user asks for coding task/progress planning, executing the next unchecked task, executing tasks until a target module is complete, generating human+agent acceptance docs, interactive guided validation walkthrough, archiving plan history, generating deployment checklists, or turning code/logic into an interactive HTML visualization. Triggers on commands like /createTasks, /doNextTask, /doTasksUntil, /validateResult, /helpValidate, /archiveHistory, /generateDeploymentChecklist, /htmlForStudy, or when you says things like "拆分任务"、"执行下一个任务"、"执行到 Module X"、"生成验收文档"、"帮我验收"、"引导我验证"、"一步步测"、"归档任务历史"、"生成部署清单"、"我要上线了准备清单"、"帮我可视化这个调用链"、"生成交互式HTML"、"画个流程图"、"做成脑图".
 ---
 
 # Ekscoding Workflow Skill
@@ -16,6 +16,7 @@ Standardize development delivery into repeatable command workflows:
 - `/helpValidate`: Interactive guided validation — walk through acceptance checklist step-by-step with Q&A, troubleshoot issues together, explain the "why" behind each test
 - `/archiveHistory`: Condense task/progress docs into summary, delete acceptance/checklist, output to `docs/history/YYYY-MM-DD.md` (append if same-day), then clear `docs/plans/`
 - `/generateDeploymentChecklist`: Generate deployment checklist, clearly categorizing: 1) Agent can do now (no extra permissions), 2) Agent can do with user's credentials/tokens, 3) Must be done by user (detailed steps with minimal mental burden)
+- `/htmlForStudy`: Convert code logic, call chains, architecture, or any complex concept into a self-contained interactive HTML visualization (Mermaid diagrams + D3 mindmap + tabs + dark/light theme)
 
 ## Command Router
 When user intent matches one of the commands, route immediately to the workflow file:
@@ -27,6 +28,7 @@ When user intent matches one of the commands, route immediately to the workflow 
 5. `/helpValidate` -> `workflows/help-validate.md`
 6. `/archiveHistory` -> `workflows/archive-history.md`
 7. `/generateDeploymentChecklist` -> `workflows/generate-deployment-checklist.md`
+8. `/htmlForStudy` -> `workflows/html-for-study.md`
 
 If the user does not type the slash command but intent is equivalent, still route to the matching workflow.
 
