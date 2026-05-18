@@ -40,6 +40,13 @@ for cmd in "${PRIORITY_TOOLS[@]}"; do
     PRIORITY_BINS+=("${cmd%% *}")
 done
 
+# Tool name → command mapping (for --tool flag)
+declare -A TOOL_MAP=(
+    ["claude"]="claude -p --permission-mode bypassPermissions"
+    ["codex"]="codex exec"
+    ["gemini"]="gemini -p"
+)
+
 # ============================================================
 # Error classification
 # ============================================================
@@ -1018,29 +1025,68 @@ Phase 2: 生成双轨验收文档
 Phase 3: 执行 agent 验收检查
 
 Options:
-  --help, -h    Show this help
+  --help, -h           Show this help
+  --tool <name>        Use specific AI CLI: claude, codex, gemini
+                       (overrides priority list from .justdoitrc)
 
 Examples:
-  ./justdoit.sh                  # Current directory
-  ./justdoit.sh ~/my-project     # Specific project
+  ./justdoit.sh                                  # Current directory, use priority list
+  ./justdoit.sh ~/my-project                     # Specific project
+  ./justdoit.sh --tool codex                     # Force codex only
+  ./justdoit.sh --tool claude ~/my-project       # Force claude, specific project
 EOF
 }
 
 main() {
-    local project_dir="${1:-$(pwd)}"
+    local specified_tool=""
 
-    case "$project_dir" in
-        --help|-h)
-            show_help
-            exit 0
-            ;;
-    esac
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            --tool)
+                specified_tool="$2"
+                if [[ -z "${TOOL_MAP[$specified_tool]:-}" ]]; then
+                    log_error "Unknown tool: $specified_tool (valid: claude, codex, gemini)"
+                    exit 1
+                fi
+                shift 2
+                ;;
+            --tool=*)
+                specified_tool="${1#*=}"
+                if [[ -z "${TOOL_MAP[$specified_tool]:-}" ]]; then
+                    log_error "Unknown tool: $specified_tool (valid: claude, codex, gemini)"
+                    exit 1
+                fi
+                shift
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    local project_dir="${1:-$(pwd)}"
 
     # Resolve to absolute path
     project_dir="$(cd "$project_dir" 2>/dev/null && pwd)" || {
         log_error "Cannot access: $project_dir"
         exit 1
     }
+
+    # Override priority list if --tool specified
+    if [[ -n "$specified_tool" ]]; then
+        PRIORITY_TOOLS=("${TOOL_MAP[$specified_tool]}")
+        PRIORITY_BINS=("$specified_tool")
+        if ! command -v "$specified_tool" &>/dev/null; then
+            log_error "Tool not found in PATH: $specified_tool"
+            exit 1
+        fi
+        log_info "Using specified tool: $specified_tool"
+    fi
 
     echo ""
     echo -e "${PURPLE}╔══════════════════════════════════════════════════════════╗${NC}"
