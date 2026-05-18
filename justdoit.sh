@@ -338,7 +338,7 @@ Execute exactly ONE task using the ekscoding workflow. Follow these steps precis
 - \`git add\` all changed files
 - Commit message format (exact): \`feat: complete Task {MODULE.TASK} - {TASK_TITLE}\`
   Example: \`feat: complete Task 2.1 - Add user authentication middleware\`
-- Do NOT git push — the script handles push separately
+- Do NOT git push — only local commit, no remote push
 
 ### Step 7: STOP
 - Report which task was completed
@@ -857,30 +857,6 @@ run_phase1() {
                     log_success "Task ${module}.${task_num} verified complete (via ${tool_bin})."
                     task_success=true
 
-                    # Best-effort git push (30s timeout, non-fatal)
-                    local branch
-                    branch=$(cd "$project_dir" && git branch --show-current 2>/dev/null || echo "")
-                    if [[ -n "$branch" ]]; then
-                        log_info "Pushing ${branch}..."
-                        (
-                            cd "$project_dir"
-                            git push origin "$branch" >/tmp/justdoit-git-push.log 2>&1
-                        ) &
-                        local push_pid=$!
-                        local push_waited=0
-                        local push_max=30
-                        while kill -0 "$push_pid" 2>/dev/null && (( push_waited < push_max )); do
-                            sleep 1
-                            ((push_waited++))
-                        done
-                        if kill -0 "$push_pid" 2>/dev/null; then
-                            kill "$push_pid" 2>/dev/null
-                            wait "$push_pid" 2>/dev/null || true
-                            log_warning "Git push timed out after ${push_max}s (committed locally)"
-                        else
-                            wait "$push_pid" && log_success "Pushed to origin/${branch}" || log_warning "Git push failed (committed locally)"
-                        fi
-                    fi
                     break 2  # break out of both retry loop AND tool loop
                 fi
 
