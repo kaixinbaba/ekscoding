@@ -343,13 +343,9 @@ Execute exactly ONE task using the ekscoding workflow. Follow these steps precis
   \`\`\`
 - Update the completion stats table at the bottom (increment completed count)
 
-### Step 6: Git commit
-- \`git add\` all changed files
-- Commit message format (exact): \`feat: complete Task {MODULE.TASK} - {TASK_TITLE}\`
-  Example: \`feat: complete Task 2.1 - Add user authentication middleware\`
-- Do NOT git push — only local commit, no remote push
-
-### Step 7: STOP
+### Step 6: STOP (git commit handled by script)
+- The justdoit.sh script will automatically commit all changes after you finish
+- Do NOT run git add/commit yourself — the script enforces it
 - Report which task was completed
 - Show verification evidence for each acceptance criterion
 - Do NOT proceed to the next task
@@ -364,8 +360,7 @@ Execute exactly ONE task using the ekscoding workflow. Follow these steps precis
 ## Hard Constraints
 - ONE TASK ONLY — stop immediately after completing one task
 - VERIFY FIRST — all acceptance criteria must pass before marking done
-- ALWAYS COMMIT — exactly one git commit per task
-- USE EXACT COMMIT FORMAT — \`feat: complete Task {MODULE.TASK} - {TASK_TITLE}\`
+- DO NOT COMMIT — the script handles git commit automatically
 - Skip blocked tasks ([~]) — only work on [ ] tasks
 PROMPT_EOF
 }
@@ -754,6 +749,45 @@ show_summary() {
 }
 
 # ============================================================
+# Git commit enforcement — script is authoritative, not the agent
+# ============================================================
+
+commit_task_changes() {
+    local project_dir="$1"
+    local module="$2"
+    local task_num="$3"
+    local title="$4"
+
+    (
+        cd "$project_dir"
+
+        # Check if there are any changes to commit
+        if git diff --quiet && git diff --cached --quiet && git diff --quiet HEAD 2>/dev/null || true; then
+            # Double check: any untracked files worth adding?
+            if [[ -z "$(git ls-files --others --exclude-standard)" ]]; then
+                log_info "No changes to commit — working tree already clean"
+                return 0
+            fi
+        fi
+
+        git add -A
+
+        # If still nothing to commit, skip
+        if git diff --cached --quiet; then
+            log_info "No staged changes — nothing to commit"
+            return 0
+        fi
+
+        local commit_msg="feat: complete Task ${module}.${task_num} - ${title}"
+        if git commit -m "$commit_msg"; then
+            log_success "Committed: ${commit_msg}"
+        else
+            log_warning "git commit failed — continuing anyway"
+        fi
+    )
+}
+
+# ============================================================
 # Phase 1: Execute all tasks
 # ============================================================
 
@@ -901,6 +935,9 @@ run_phase1() {
                     fi
                     log_success "Task ${module}.${task_num} verified complete (via ${tool_bin})."
                     task_success=true
+
+                    # Enforce git commit — script is authoritative
+                    commit_task_changes "$project_dir" "$module" "$task_num" "$title"
 
                     break 2  # break out of both retry loop AND tool loop
                 fi
