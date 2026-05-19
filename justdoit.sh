@@ -16,7 +16,7 @@ SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_TEMPLATES_DIR="${SKILL_DIR}/templates"
 MAX_RETRIES=3
 SLEEP_BETWEEN_TASKS=2
-TASK_TIMEOUT=1200  # 20 minutes per task attempt (0 = disabled, override in .justdoitrc)
+TASK_TIMEOUT=1800  # 30 minutes per task attempt (0 = disabled, override in .justdoitrc)
 HEARTBEAT_INTERVAL=30  # seconds between progress pings
 
 # Load tool config
