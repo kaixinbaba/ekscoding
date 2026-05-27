@@ -77,6 +77,8 @@ install.sh 会逐步引导你完成安装：
 | `helpValidate` | 交互式引导验收，逐步走查验收清单，排查问题 | "帮我验收"、"引导我验证"、"一步步测" |
 | `archiveHistory` | 浓缩 task/progress 为总结，验收/部署清单提取要点后删除，输出到 `docs/history/YYYY-MM-DD.md`（同日多次归档追加） | "归档任务历史"、"保存历史" |
 | `generateDeploymentChecklist` | 生成部署清单 | "生成部署清单"、"我要上线了准备清单" |
+| `logicmap` | 为项目生成业务逻辑地图（两层文档结构 + AGENTS.md 同步） | "生成逻辑地图"、"生成业务逻辑文档" |
+| `agentslink` | 统一 agent 文件为 AGENTS.md + 软链接 | "统一 agent 文件"、"合并 agent 配置" |
 
 ## justdoit — 一键自动化
 

@@ -170,6 +170,7 @@ cmd_install() {
     cp -r "$SCRIPT_DIR/SKILL.md" \
           "$SCRIPT_DIR/README.md" \
           "$SCRIPT_DIR/justdoit.sh" \
+          "$SCRIPT_DIR/agents-link.sh" \
           "$SCRIPT_DIR/workflows" \
           "$SCRIPT_DIR/templates" \
           "$target_dir"
@@ -534,6 +535,21 @@ exec '"$target_dir"'/justdoit.sh "$@"
         echo ""
         echo "  试试: justdoit --help"
     fi
+    echo ""
+    echo "  可用命令 (通过 AI 工具调用):"
+    echo "    createTasks          拆分任务"
+    echo "    doNextTask           执行下一个任务"
+    echo "    doTasksUntil         执行到指定 Module"
+    echo "    validateResult       生成验收文档"
+    echo "    helpValidate         交互式验收引导"
+    echo "    archiveHistory       归档任务历史"
+    echo "    generateDeploymentChecklist  生成部署清单"
+    echo "    htmlForStudy         代码逻辑可视化"
+    echo "    logicmap             生成项目逻辑地图"
+    echo "    agentslink           统一 agent 文件为 AGENTS.md"
+    echo ""
+    echo "  agents-link.sh 脚本: $target_dir/agents-link.sh"
+    echo "  如需全局命令: ln -s $target_dir/agents-link.sh ~/.local/bin/agents-link"
     echo ""
 }
 

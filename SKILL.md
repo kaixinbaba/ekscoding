@@ -1,6 +1,6 @@
 ---
 name: ekscoding
-description: Use this when the user asks for coding task/progress planning, executing the next unchecked task, executing tasks until a target module is complete, generating human+agent acceptance docs, interactive guided validation walkthrough, archiving plan history, generating deployment checklists, or turning code/logic into an interactive HTML visualization. Triggers on commands like /createTasks, /doNextTask, /doTasksUntil, /validateResult, /helpValidate, /archiveHistory, /generateDeploymentChecklist, /htmlForStudy, or when you says things like "拆分任务"、"执行下一个任务"、"执行到 Module X"、"生成验收文档"、"帮我验收"、"引导我验证"、"一步步测"、"归档任务历史"、"生成部署清单"、"我要上线了准备清单"、"帮我可视化这个调用链"、"生成交互式HTML"、"画个流程图"、"做成脑图".
+description: Use this when the user asks for coding task/progress planning, executing the next unchecked task, executing tasks until a target module is complete, generating human+agent acceptance docs, interactive guided validation walkthrough, archiving plan history, generating deployment checklists, turning code/logic into an interactive HTML visualization, generating business logic map documentation for a project, or consolidating agent-specific instruction files into a unified AGENTS.md. Triggers on commands like /createTasks, /doNextTask, /doTasksUntil, /validateResult, /helpValidate, /archiveHistory, /generateDeploymentChecklist, /htmlForStudy, /logicmap, /agentslink, or when you says things like "拆分任务"、"执行下一个任务"、"执行到 Module X"、"生成验收文档"、"帮我验收"、"引导我验证"、"一步步测"、"归档任务历史"、"生成部署清单"、"我要上线了准备清单"、"帮我可视化这个调用链"、"生成交互式HTML"、"画个流程图"、"做成脑图"、"生成逻辑地图"、"生成业务逻辑文档"、"统一 agent 文件"、"合并 agent 配置"、"创建 AGENTS.md".
 ---
 
 # Ekscoding Workflow Skill
@@ -17,6 +17,8 @@ Standardize development delivery into repeatable command workflows:
 - `/archiveHistory`: Condense task/progress docs into summary, delete acceptance/checklist, output to `docs/history/YYYY-MM-DD.md` (append if same-day), then clear `docs/plans/`
 - `/generateDeploymentChecklist`: Generate deployment checklist, clearly categorizing: 1) Agent can do now (no extra permissions), 2) Agent can do with user's credentials/tokens, 3) Must be done by user (detailed steps with minimal mental burden)
 - `/htmlForStudy`: Convert code logic, call chains, architecture, or any complex concept into a self-contained interactive HTML visualization (Mermaid diagrams + D3 mindmap + tabs + dark/light theme)
+- `/logicmap`: Generate business logic map for the current project — analyze routes, pages, APIs, auth, payments to produce `docs/LOGIC_MAP.md` + `docs/logic-map/` with two-layer doc structure (module index pages + second-level docs) following stable numbering conventions
+- `/agentslink`: Consolidate agent-specific instruction files (CLAUDE.md, GEMINI.md, CODEX.md, etc.) into a single `AGENTS.md` and symlink all known filenames to it. Supports `--global` mode for `~/.claude/` and `--dry-run` to preview
 
 ## Command Router
 When user intent matches one of the commands, route immediately to the workflow file:
@@ -29,6 +31,8 @@ When user intent matches one of the commands, route immediately to the workflow 
 6. `/archiveHistory` -> `workflows/archive-history.md`
 7. `/generateDeploymentChecklist` -> `workflows/generate-deployment-checklist.md`
 8. `/htmlForStudy` -> `workflows/html-for-study.md`
+9. `/logicmap` -> `workflows/logicmap.md`
+10. `/agentslink` -> `workflows/agentslink.md`
 
 If the user does not type the slash command but intent is equivalent, still route to the matching workflow.
 
