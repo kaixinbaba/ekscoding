@@ -30,11 +30,12 @@ separator()   { echo -e "${BLUE}────────────────
 # Tool detection
 # ============================================================
 
-get_tool_skill_path() {
+get_tool_skill_paths() {
     case "$1" in
         claude)   echo "$HOME/.claude/skills" ;;
         codex)    echo "$HOME/.codex/skills" ;;
-        openclaw) echo "$HOME/.openclaw/workspace/skills" ;;
+        openclaw) echo "$HOME/.openclaw/workspace/skills"
+                  echo "$HOME/.openclaw/workspace/.agents/skills" ;;
         gemini)   echo "$HOME/.gemini/skills" ;;
     esac
 }
@@ -43,7 +44,7 @@ detect_tools() {
     local tools=()
     for tool in claude codex openclaw gemini; do
         local dir
-        dir=$(get_tool_skill_path "$tool")
+        dir=$(get_tool_skill_paths "$tool" | head -1)
         if [ -d "$(dirname "$dir")" ]; then
             tools+=("$tool")
         fi
@@ -187,23 +188,23 @@ cmd_install() {
     else
         echo ""
         for tool in "${tools[@]}"; do
-            local link_dir
-            link_dir=$(get_tool_skill_path "$tool")
-            local link_path="$link_dir/$SKILL_NAME"
+            while IFS= read -r link_dir; do
+                local link_path="$link_dir/$SKILL_NAME"
 
-            mkdir -p "$link_dir"
+                mkdir -p "$link_dir"
 
-            if [ -e "$link_path" ]; then
-                if [ -L "$link_path" ] && [ "$(readlink "$link_path")" = "$target_dir" ]; then
-                    log_info "$tool: 链接已正确"
-                    continue
+                if [ -e "$link_path" ]; then
+                    if [ -L "$link_path" ] && [ "$(readlink "$link_path")" = "$target_dir" ]; then
+                        log_info "$tool: 链接已正确 ($link_dir)"
+                        continue
+                    fi
+                    log_warn "$tool: 覆盖已有文件 ($link_dir)"
+                    rm -rf "$link_path"
                 fi
-                log_warn "$tool: 覆盖已有文件"
-                rm -rf "$link_path"
-            fi
 
-            ln -s "$target_dir" "$link_path"
-            log_success "$tool: 已链接"
+                ln -s "$target_dir" "$link_path"
+                log_success "$tool: 已链接 ($link_dir)"
+            done < <(get_tool_skill_paths "$tool")
         done
     fi
 
@@ -596,14 +597,14 @@ cmd_uninstall() {
 
     # Remove AI tool symlinks
     for tool in $(detect_tools); do
-        local link_dir
-        link_dir=$(get_tool_skill_path "$tool")
-        local link_path="$link_dir/$SKILL_NAME"
+        while IFS= read -r link_dir; do
+            local link_path="$link_dir/$SKILL_NAME"
 
-        if [ -L "$link_path" ] && [ "$(readlink "$link_path")" = "$target_dir" ]; then
-            rm "$link_path"
-            log_success "移除链接: $tool"
-        fi
+            if [ -L "$link_path" ] && [ "$(readlink "$link_path")" = "$target_dir" ]; then
+                rm "$link_path"
+                log_success "移除链接: $tool ($link_dir)"
+            fi
+        done < <(get_tool_skill_paths "$tool")
     done
 
     # Remove install dir
@@ -670,16 +671,16 @@ cmd_status() {
     echo "AI 工具链接:"
     local found_tool=false
     for tool in $(detect_tools); do
-        local link_dir
-        link_dir=$(get_tool_skill_path "$tool")
-        local link_path="$link_dir/$SKILL_NAME"
+        while IFS= read -r link_dir; do
+            local link_path="$link_dir/$SKILL_NAME"
 
-        if [ -L "$link_path" ]; then
-            echo -e "  ${GREEN}✓${NC} $tool → $(readlink "$link_path")"
-            found_tool=true
-        else
-            echo -e "  ${YELLOW}○${NC} $tool"
-        fi
+            if [ -L "$link_path" ]; then
+                echo -e "  ${GREEN}✓${NC} $tool ($link_dir) → $(readlink "$link_path")"
+                found_tool=true
+            else
+                echo -e "  ${YELLOW}○${NC} $tool ($link_dir)"
+            fi
+        done < <(get_tool_skill_paths "$tool")
     done
     $found_tool || echo "  (none)"
 
