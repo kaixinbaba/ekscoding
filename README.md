@@ -145,21 +145,31 @@ ekscoding/
 ├── SKILL.md                          # Skill 入口定义
 ├── README.md                         # 本文件
 ├── justdoit.sh                       # 一键任务执行 + 验收脚本
+├── agents-link.sh                    # Agent 文件统一脚本
 ├── install.sh                        # 安装脚本
-├── workflows/
+├── references/
 │   ├── create-tasks.md               # 任务拆分工作流
 │   ├── do-next-task.md               # 执行下一个任务工作流
 │   ├── do-tasks-until.md             # 执行到目标 Module 工作流
 │   ├── validate-result.md            # 结果验证工作流
 │   ├── help-validate.md             # 交互式验收引导工作流
 │   ├── archive-history.md            # 历史归档工作流
-│   └── generate-deployment-checklist.md  # 部署清单生成工作流
+│   ├── generate-deployment-checklist.md  # 部署清单生成工作流
+│   ├── html-for-study.md             # 代码逻辑可视化工作流
+│   ├── logicmap.md                   # 业务逻辑地图生成工作流
+│   └── agentslink.md                 # Agent 文件统一工作流
 └── templates/
     ├── task-template.md              # 任务文档模板
     ├── progress-template.md          # 进度文档模板
     ├── acceptance-human-template.md  # 人工验收模板
     ├── acceptance-agent-template.md  # Agent 验收模板
-    └── deployment-checklist-template.md  # 部署清单模板
+    ├── deployment-checklist-template.md  # 部署清单模板
+    └── logic-map/
+        ├── LOGIC_MAP_TEMPLATE.md     # 逻辑地图根索引模板
+        ├── MODULE_TEMPLATE.md        # 模块索引页模板
+        ├── SECOND_LEVEL_TEMPLATE.md  # 二级文档模板
+        ├── NUMBERING.md             # 编号规范
+        └── README.md                # 使用说明
 ```
 
 ## 文档命名约定

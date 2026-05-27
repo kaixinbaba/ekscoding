@@ -1,74 +1,73 @@
 ---
 name: ekscoding
-description: Use this when the user asks for coding task/progress planning, executing the next unchecked task, executing tasks until a target module is complete, generating human+agent acceptance docs, interactive guided validation walkthrough, archiving plan history, generating deployment checklists, turning code/logic into an interactive HTML visualization, generating business logic map documentation for a project, or consolidating agent-specific instruction files into a unified AGENTS.md. Triggers on commands like /createTasks, /doNextTask, /doTasksUntil, /validateResult, /helpValidate, /archiveHistory, /generateDeploymentChecklist, /htmlForStudy, /logicmap, /agentslink, or when you says things like "拆分任务"、"执行下一个任务"、"执行到 Module X"、"生成验收文档"、"帮我验收"、"引导我验证"、"一步步测"、"归档任务历史"、"生成部署清单"、"我要上线了准备清单"、"帮我可视化这个调用链"、"生成交互式HTML"、"画个流程图"、"做成脑图"、"生成逻辑地图"、"生成业务逻辑文档"、"统一 agent 文件"、"合并 agent 配置"、"创建 AGENTS.md".
+description: 标准化开发交付工作流，将需求拆分、任务执行、验收、归档串联为可重复命令。触发场景：用户说"拆分任务"、"执行下一个任务"、"生成验收文档"、"归档"、"生成部署清单"、"逻辑地图"、"统一 agent 文件"或输入 /createTasks /doNextTask 等斜杠命令。不处理：非结构化的一次性编码请求、单纯的代码解释、PR review、bug 排查——这些用 sc:implement / explain / review / investigate。
 ---
 
-# Ekscoding Workflow Skill
+# Ekscoding — 开发交付工作流
 
-标准化开发交付工作流 Skill，将需求拆分、任务执行、验收、归档、部署准备串联为可重复的命令。
+## 你是谁
 
-## Purpose
-Standardize development delivery into repeatable command workflows:
-- `/createTasks`: From a requirement, create task plan + progress tracking doc
-- `/doNextTask`: Execute the first unchecked task, update progress, git commit once done
-- `/doTasksUntil`: Execute tasks sequentially from first unchecked until target module is fully complete (includes all prerequisite tasks)
-- `/validateResult`: Generate dual-track acceptance docs (human + agent) + run agent checks
-- `/helpValidate`: Interactive guided validation — walk through acceptance checklist step-by-step with Q&A, troubleshoot issues together, explain the "why" behind each test
-- `/archiveHistory`: Condense task/progress docs into summary, delete acceptance/checklist, output to `docs/history/YYYY-MM-DD.md` (append if same-day), then clear `docs/plans/`
-- `/generateDeploymentChecklist`: Generate deployment checklist, clearly categorizing: 1) Agent can do now (no extra permissions), 2) Agent can do with user's credentials/tokens, 3) Must be done by user (detailed steps with minimal mental burden)
-- `/htmlForStudy`: Convert code logic, call chains, architecture, or any complex concept into a self-contained interactive HTML visualization (Mermaid diagrams + D3 mindmap + tabs + dark/light theme)
-- `/logicmap`: Generate business logic map for the current project — analyze routes, pages, APIs, auth, payments to produce `docs/LOGIC_MAP.md` + `docs/logic-map/` with two-layer doc structure (module index pages + second-level docs) following stable numbering conventions
-- `/agentslink`: Consolidate agent-specific instruction files (CLAUDE.md, GEMINI.md, CODEX.md, etc.) into a single `AGENTS.md` and symlink all known filenames to it. Supports `--global` mode for `~/.claude/` and `--dry-run` to preview
+你是标准化的开发交付流水线。你把需求→任务→执行→验收→归档整条链路变成可重复的命令，每次只做一件事，每步都有 trace。
 
-## Command Router
-When user intent matches one of the commands, route immediately to the workflow file:
+## 触发条件
 
-1. `/createTasks` -> `workflows/create-tasks.md`
-2. `/doNextTask` -> `workflows/do-next-task.md`
-3. `/doTasksUntil` -> `workflows/do-tasks-until.md`
-4. `/validateResult` -> `workflows/validate-result.md`
-5. `/helpValidate` -> `workflows/help-validate.md`
-6. `/archiveHistory` -> `workflows/archive-history.md`
-7. `/generateDeploymentChecklist` -> `workflows/generate-deployment-checklist.md`
-8. `/htmlForStudy` -> `workflows/html-for-study.md`
-9. `/logicmap` -> `workflows/logicmap.md`
-10. `/agentslink` -> `workflows/agentslink.md`
+用户输入以下斜杠命令，或自然语言表达同等意图：
 
-If the user does not type the slash command but intent is equivalent, still route to the matching workflow.
+| 命令 | 触发词 |
+|------|--------|
+| `/createTasks` | "拆分任务"、"创建任务计划" |
+| `/doNextTask` | "执行下一个任务" |
+| `/doTasksUntil` | "执行到 Module X" |
+| `/validateResult` | "生成验收文档" |
+| `/helpValidate` | "帮我验收"、"引导我验证"、"一步步测" |
+| `/archiveHistory` | "归档任务历史" |
+| `/generateDeploymentChecklist` | "生成部署清单"、"我要上线了准备清单" |
+| `/htmlForStudy` | "可视化调用链"、"生成交互式HTML"、"画流程图"、"做成脑图" |
+| `/logicmap` | "生成逻辑地图"、"业务逻辑文档" |
+| `/agentslink` | "统一 agent 文件"、"合并 agent 配置"、"创建 AGENTS.md" |
 
-## Global Rules
-- All plan docs live in `docs/plans/`; history in `docs/history/`
-- Task and progress docs always use sequential numbers (task1.md, progress1.md, task2.md, ...)
-- When in doubt, keep docs in the same format as the previous ones
-- **Never** execute multiple tasks in one run for `/doNextTask`
-- **Always** commit git changes after completing one task in `/doNextTask`
-- `/doTasksUntil` executes multiple tasks sequentially until target module is complete; each task gets its own commit
-- **Always** verify acceptance criteria before marking a task complete
+不触发：随便聊聊代码、问单个函数怎么用、修个 typo、PR review。
 
-## Required Output Quality
-- Tasks must be broken down to 1-2 hour size
-- Acceptance criteria must be objectively verifiable
-- All status changes must include timestamp + brief comment
-- Docs must be human-readable first, machine-parseable second
+## 工作流程
 
-## File Naming Conventions
-| Doc Type | Path Pattern |
-|----------|--------------|
-| Task Split | `docs/plans/task{N}.md` |
-| Progress Tracking | `docs/plans/progress{N}.md` |
-| Human Acceptance | `docs/plans/acceptance-{FEATURE}.md` |
-| Agent Acceptance | `docs/plans/acceptance-{FEATURE}-agent.md` |
-| Archived History | `docs/history/YYYY-MM-DD.md` |
-| Deployment Checklist | `docs/plans/deployment-checklist-{PROJECT}.md` |
+1. 匹配用户意图 → 路由到 `references/{command}.md`
+2. 读取对应 workflow 文件的 Goal → Steps → Hard Constraints
+3. 严格按 workflow 执行，不跳步
+4. 完成后汇报结果
 
-## State Markers (Universal)
-| Marker | Meaning | Usage |
-|--------|---------|-------|
-| [ ] | Not started | Task/acceptance item pending |
-| [x] | Done | Task completed and verified |
-| [~] | Blocked | Stopped due to external issue; MUST include reason |
+## 共享资源
 
-## Deployment Checklist Categories
-1. **Agent can do now** (no extra permissions)
-2. **Agent can do with user's credentials/tokens**
-3. **Must be done by user** — detailed step-by-step, minimize mental burden
+| 文件 | 用途 | 加载时机 |
+|------|------|---------|
+| `references/create-tasks.md` | /createTasks workflow | 匹配到命令时 |
+| `references/do-next-task.md` | /doNextTask workflow | 匹配到命令时 |
+| `references/do-tasks-until.md` | /doTasksUntil workflow | 匹配到命令时 |
+| `references/validate-result.md` | /validateResult workflow | 匹配到命令时 |
+| `references/help-validate.md` | /helpValidate workflow | 匹配到命令时 |
+| `references/archive-history.md` | /archiveHistory workflow | 匹配到命令时 |
+| `references/generate-deployment-checklist.md` | /generateDeploymentChecklist workflow | 匹配到命令时 |
+| `references/html-for-study.md` | /htmlForStudy workflow | 匹配到命令时 |
+| `references/logicmap.md` | /logicmap workflow | 匹配到命令时 |
+| `references/agentslink.md` | /agentslink workflow | 匹配到命令时 |
+| `templates/` | 验收文档、任务拆分、部署清单、逻辑地图模板 | 对应 workflow 需要时 |
+
+## 全局规则
+
+- 所有计划文档放 `docs/plans/`，历史归档在 `docs/history/`
+- 任务/进度文档用递增序号：task1.md, progress1.md, task2.md, ...
+- `/doNextTask` 每次只执行一个任务，完成后 git commit，立即停止
+- `/doTasksUntil` 串行执行直到目标模块完成，每个任务独立 commit
+- 验收标准必须逐条验证，有证据才打 `[x]`
+- 任务粒度：1-2h/个
+
+## 红线
+
+- `/doNextTask` 禁止一次执行多个任务——一个任务一个 commit 后立即停止
+- 禁止跳过验收标准验证直接标记 `[x]`
+- 禁止在没有读取 task doc 的情况下执行任务
+- `/archiveHistory` 必须先完整读取所有 plan 文件再做摘要——禁止盲删
+- `/htmlForStudy` 禁止使用 Mermaid 11、禁止 `file://` 协议、禁止 `startOnLoad: true`
+- `/validateResult` 人工验收文档禁止出现 CLI 命令，agent 验收文档禁止出现视觉判断
+- `/logicmap` 禁止粘贴源码片段，禁止随意更改已分配的编号
+- `/agentslink` 禁止删除用户数据——必须先合并再创建软链
+- 禁止自动推进到下一个任务（`/doNextTask` 完成后必须等用户指令）

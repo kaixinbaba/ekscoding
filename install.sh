@@ -171,7 +171,7 @@ cmd_install() {
           "$SCRIPT_DIR/README.md" \
           "$SCRIPT_DIR/justdoit.sh" \
           "$SCRIPT_DIR/agents-link.sh" \
-          "$SCRIPT_DIR/workflows" \
+          "$SCRIPT_DIR/references" \
           "$SCRIPT_DIR/templates" \
           "$target_dir"
     log_success "已复制 skill 文件到 $target_dir"
